@@ -315,6 +315,7 @@ void MainWindow::buildUi()
     m_scaleAction->setChecked(true);
     connect(m_scaleAction, &QAction::toggled, this, [this](bool on) {
         m_settings.showScale = on;
+        m_settings.save(m_db);   // at once, not only on a clean exit
         m_scale->setVisible(on);
         if (on)
             updateScale();
@@ -324,6 +325,7 @@ void MainWindow::buildUi()
     m_tableAction->setChecked(true);
     connect(m_tableAction, &QAction::toggled, this, [this](bool on) {
         m_settings.showTable = on;
+        m_settings.save(m_db);
         m_table->setVisible(on);
         if (on)
         {
@@ -333,9 +335,10 @@ void MainWindow::buildUi()
     });
     m_playerAction = view->addAction(tr("&Online receiver (KiwiSDR)"));
     m_playerAction->setCheckable(true);
-    m_playerAction->setChecked(false);
+    m_playerAction->setChecked(true);
     connect(m_playerAction, &QAction::toggled, this, [this](bool on) {
         m_settings.showPlayer = on;
+        m_settings.save(m_db);
         m_player->setVisible(on);
         if (on)
             m_kiwiDirectory->refresh();   // at most once a day
@@ -490,7 +493,8 @@ void MainWindow::buildUi()
         tuneTo(kHz, QString());
     });
     connect(m_scale, &DialScale::spanChanged, this, [this](double kHz) {
-        m_settings.scaleSpanKHz = kHz;   // the zoom is remembered
+        m_settings.scaleSpanKHz = kHz;   // the zoom is remembered, at once
+        m_settings.save(m_db);
     });
 
     m_player = new KiwiPlayer;
@@ -677,7 +681,7 @@ void MainWindow::updateHeader()
                  : svc.contains(QLatin1String("STANDARD FREQ")) ? QStringLiteral("time")
                  : svc.contains(QLatin1String("RADIONAVIGATION")) ? QStringLiteral("beacon")
                  : QStringLiteral("other");
-            tip = tr("Use in Finland per Traficom's allocation table (CC BY 4.0):\n");
+            tip = tr("Traficom allocation table:\n");
             for (const StationDb::Allocation& a : rows)
             {
                 tip += QStringLiteral("%1 - %2 kHz: %3").arg(a.lowKHz, 0, 'f', 3).arg(a.highKHz, 0, 'f', 3)
@@ -845,11 +849,13 @@ void MainWindow::updateScale()
     m_scale->setHighlightKHz(m_tolerance->value());
     if (!m_dialActive)
         return;   // keep the last marks while a search is open
+    // the same rows the list shows: "On air only" applies to the scale too
     QVector<DialScale::Mark> marks;
-    const int rows = m_model->rowCount();
-    for (int r = 0; r < rows; ++r)
+    const int rows = m_proxy->rowCount();
+    for (int pr = 0; pr < rows; ++pr)
     {
-        if (m_model->isBlank(r))
+        const int r = m_proxy->mapToSource(m_proxy->index(pr, 0)).row();
+        if (r < 0 || m_model->isBlank(r))
             continue;
         const StationEntry& e = m_model->entryAt(r);
         const int rank = StationModel::rank(m_model->statusAt(r));
@@ -1074,6 +1080,7 @@ void MainWindow::onFrequencyEdited()
 void MainWindow::onFollowToggled(bool follow)
 {
     m_settings.followRig = follow;
+    m_settings.save(m_db);
     m_freqEdit->setReadOnly(follow);
     if (follow && m_rigHz > 0)
         setCentreKHz(m_rigHz / 1000.0, true);
@@ -1089,6 +1096,7 @@ void MainWindow::onFollowToggled(bool follow)
 void MainWindow::onToleranceChanged(double kHz)
 {
     m_settings.toleranceKHz = kHz;
+    m_settings.save(m_db);
     m_model->setHighlightKHz(kHz);   // recolour only, the list stays put
     updateScale();
 }
@@ -1101,8 +1109,10 @@ void MainWindow::updateToleranceHint()
 void MainWindow::onOnAirOnlyToggled(bool on)
 {
     m_settings.onAirOnly = on;
+    m_settings.save(m_db);
     m_proxy->setOnAirOnly(on);
     updateCountLabel();
+    updateScale();
     // the rows changed under the view: put the VFO back in the middle
     centreOnMarker();
     QTimer::singleShot(0, this, &MainWindow::centreOnMarker);
@@ -1213,7 +1223,7 @@ void MainWindow::about()
            "<li><a href=\"http://www.eibispace.de/\">EiBi</a> by Eike Bierwirth, free for third-party software</li>"
            "<li><a href=\"http://www.hfcc.org/data/\">HFCC</a> public data files</li>"
            "<li><a href=\"http://www1.s2.starcat.ne.jp/ndxc/\">Aoki / Bi Newsletter</a> by the Nagoya DXers Circle</li>"
-           "<li><a href=\"https://www.avoindata.fi/data/fi/dataset/taajuusjakotaulukko\">Traficom</a> frequency allocation table, open data, CC BY 4.0</li>"
+           "<li><a href=\"https://avoindata.suomi.fi/data/en_GB/dataset/taajuusjakotaulukko\">Traficom</a> frequency allocation table</li>"
            "<li>Public <a href=\"http://kiwisdr.com/public/\">KiwiSDR</a> receivers, listed via <a href=\"http://rx.linkfanel.net/\">rx.linkfanel.net</a></li>"
            "</ul><p>Thank you to everyone compiling these lists.</p>"
            "<p>Rig control through <a href=\"https://hamlib.github.io/\">Hamlib</a>'s rigctld. "

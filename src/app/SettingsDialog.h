@@ -30,7 +30,7 @@ struct AppSettings
     bool aokiEnabled = true;
     // national allocation table: Traficom (Finland), CC BY 4.0
     QString traficomUrl = QStringLiteral("https://opendata.traficom.fi/api/v13/Taajuusjakotaulukko");
-    bool traficomEnabled = false;
+    bool traficomEnabled = true;
     // "start rigctld for me"
     bool launchRigctld = false;
     QString rigctldPath;
@@ -43,7 +43,7 @@ struct AppSettings
     bool alwaysOnTop = false;
     bool showScale = true;
     bool showTable = true;
-    bool showPlayer = false;
+    bool showPlayer = true;
     double scaleSpanKHz = 100.0;   // width of the dial scale
     QStringList kiwiReceivers;
     QString kiwiCurrent;

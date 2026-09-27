@@ -55,9 +55,9 @@ How to hook up the radio: <https://otd.oh2gba.eu/rig.html>
 - Band indicator: the header shows the allocation of the tuned frequency (49 m broadcast, 40 m amateur,
   aeronautical mobile, maritime mobile, standard time) for the ITU region chosen in Settings.
   Well known unlicensed uses are named too, after the official allocation: pirate and free
-  radio bands, the 11 m freeband. The table lives in `data/bandplan.json`. Under
-  *File → Settings → Data* the Finnish allocation table from Traficom's open data (CC BY 4.0)
-  can be switched on; the header then names the use of each sub-band in Finland.
+  radio bands, the 11 m freeband. The table lives in `data/bandplan.json`. Traficom's
+  detailed allocation table is downloaded as well and, while it is on (the default), the
+  header names the use of each sub-band from it instead; *File → Settings → Data* switches it off.
 - Personal list: add your own identifications (Stations menu or right-click), edit, delete,
   import and export as CSV. They appear with source "Mine" and live in the same database.
 - Right-click a row for the matching sigidwiki.com page of the mode, or a wiki search for the station.
