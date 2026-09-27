@@ -56,6 +56,7 @@ docker run --rm --privileged -u "$(id -u):$(id -g)" \
 # (inside the container there is no session bus for the installer).
 export FLATPAK_USER_DIR="$PWD/.flatpak"
 flatpak --user remote-add --no-gpg-verify --if-not-exists otd-local "$PWD/repo"
+flatpak --user remote-modify --no-gpg-verify --url="file://$PWD/repo" otd-local   # the project may have moved
 flatpak --user install -y --noninteractive --reinstall otd-local eu.oh2gba.otd >/dev/null
 echo
 echo "Installed into ./.flatpak. Start it with:  flatpak/build.sh --run"
