@@ -57,5 +57,5 @@ modules:
     sources:
       - type: git
         url: https://github.com/oh2gba/otd.git
-        tag: v1.4.1
-        commit: c07be3c4d3bcdc0195210ab9294372f47b66ad29
+        tag: v1.5.0
+        commit: 2b82a0477e6dc2074ef79f6156375f7936bd2b38
