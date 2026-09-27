@@ -37,6 +37,14 @@
   <categories><category>HamRadio</category><category>Network</category></categories>
   <keywords><keyword>shortwave</keyword><keyword>SWL</keyword><keyword>rigctld</keyword><keyword>EiBi</keyword></keywords>
   <releases>
+    <release version="1.6.0" date="2026-09-27">
+      <description>
+        <ul>
+          <li>Hamlib's rigctld now comes with every download: the Linux AppImage and the macOS app carry it too, as the Windows packages and the Flatpak already did</li>
+          <li>Settings no longer ask where rigctld is; the included copy is used, or the one on the PATH for a build from source</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.4" date="2026-09-27">
       <description>
         <ul>
