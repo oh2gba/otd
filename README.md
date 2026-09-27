@@ -2,12 +2,15 @@
 
 *Who is on the frequency I am tuned to?*
 
-On The Dial, `otd` for short, is a small desktop program for shortwave listeners. It follows the
+otd (On The Dial) is a small desktop program for shortwave listeners. It follows the
 VFO of your receiver through Hamlib's `rigctld` and shows which stations are
 scheduled on or near that frequency right now: broadcasters, utility stations,
-time signals, and oddities such as *The Buzzer* on 4625 kHz.
+time signals, and oddities such as *The Buzzer* on 4625 kHz. It can also listen
+through public KiwiSDR receivers, and it keeps working offline from its local
+database, which makes it useful when the internet is down and shortwave is what
+is left.
 
-![On The Dial on 11775 kHz, the tuned frequency in the middle](doc/screenshot.png)
+![otd on 8912 kHz: the dial scale above, the list around the tuned frequency, the KiwiSDR player below](doc/screenshot.png)
 
 ## Download
 
@@ -117,7 +120,12 @@ cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build
 ./build/otd                         # follow rigctld on localhost:4532
 ./build/otd --frequency 4625        # manual mode at 4625 kHz
 ./build/otd --data-dir ./data-local # portable: keep everything here
+./build/otd --palette dark          # light or dark colours instead of the desktop's
 ```
+
+Without a rig: type a frequency into the search box, or use the arrow keys while
+*Follow rig* is off (1 kHz, Page Up/Down 5 kHz, with Ctrl 0.1 kHz). *View → Online
+receiver* opens the KiwiSDR player.
 
 Settings (rigctld host/port, poll interval, search width, refresh interval,
 sources and their URLs) are under *File → Settings* and are stored in the
@@ -133,7 +141,7 @@ via a window rule for "otd".
 
 ## Flatpak
 
-`flatpak/eu.oh2gba.otd.yml` builds the app together with Hamlib on the KDE 6.8
+`flatpak/eu.oh2gba.otd.yml` builds the app together with Hamlib on the KDE 6.11
 runtime, so rigctld is available inside the sandbox:
 
 ```bash
@@ -152,11 +160,12 @@ Source code: <https://github.com/oh2gba/otd>
 ## Project layout
 
 ```
-src/core/   parsers (EiBi, HFCC, Aoki), schedule evaluation, SQLite store, rigctld client, downloaders (no GUI)
-src/app/    Qt Widgets user interface
-tests/      QtTest unit tests for the core
-docker/     build image (Debian trixie + Qt 6)
-data/       desktop entry and icon
+src/core/   parsers (EiBi, HFCC, Aoki, Traficom), schedule evaluation, SQLite store, rigctld client,
+            downloaders, band plan, KiwiSDR client and receiver directory, version check (no GUI)
+src/app/    Qt Widgets user interface: main window, station model, dial scale, KiwiSDR player, settings
+tests/      QtTest unit tests for the core, plus kiwi_probe (manual check of a KiwiSDR connection)
+docker/     build images (Debian trixie + Qt 6; Ubuntu 22.04 for the AppImage; mingw for Windows)
+data/       desktop entry, icons, AppStream metainfo, band plan table
 third_party/miniz   zip extraction (MIT), bundled
 ```
 
