@@ -1,4 +1,4 @@
-# On The Dial (otd)
+# otd (On The Dial)
 
 *Who is on the frequency I am tuned to?*
 
@@ -11,15 +11,15 @@ time signals, and oddities such as *The Buzzer* on 4625 kHz.
 
 ## Download
 
-Ready-made builds from the [GitHub releases](https://github.com/oh2gba/onthedial/releases), always the newest version, no installation needed:
+Ready-made builds from the [GitHub releases](https://github.com/oh2gba/otd/releases), always the newest version, no installation needed:
 
-- Windows 10/11 (64-bit): [otd-windows-x64.zip](https://github.com/oh2gba/onthedial/releases/latest/download/otd-windows-x64.zip), unzip and start `otd.exe`. Hamlib's rigctld is included.
-- Linux (64-bit): [otd-x86_64.AppImage](https://github.com/oh2gba/onthedial/releases/latest/download/otd-x86_64.AppImage), `chmod +x` and run. Needs the distribution's Hamlib package for rigctld.
-- macOS 12 or newer (Apple Silicon and Intel): [otd-macos.dmg](https://github.com/oh2gba/onthedial/releases/latest/download/otd-macos.dmg).
+- Windows 10/11 (64-bit): [otd-windows-x64.zip](https://github.com/oh2gba/otd/releases/latest/download/otd-windows-x64.zip), unzip and start `otd.exe`. Hamlib's rigctld is included.
+- Linux (64-bit): [otd-x86_64.AppImage](https://github.com/oh2gba/otd/releases/latest/download/otd-x86_64.AppImage), `chmod +x` and run. Needs the distribution's Hamlib package for rigctld.
+- macOS 12 or newer (Apple Silicon and Intel): [otd-macos.dmg](https://github.com/oh2gba/otd/releases/latest/download/otd-macos.dmg).
   The app is not notarized, so on first start right-click it and choose Open. Install rigctld with `brew install hamlib`.
-- Checksums: [SHA256SUMS.txt](https://github.com/oh2gba/onthedial/releases/latest/download/SHA256SUMS.txt). All versions: [releases](https://github.com/oh2gba/onthedial/releases).
+- Checksums: [SHA256SUMS.txt](https://github.com/oh2gba/otd/releases/latest/download/SHA256SUMS.txt). All versions: [releases](https://github.com/oh2gba/otd/releases).
 
-How to hook up the radio: <https://onthedial.oh2gba.eu/rig.html>
+How to hook up the radio: <https://otd.oh2gba.eu/rig.html>
 
 ## Features
 
@@ -31,10 +31,17 @@ How to hook up the radio: <https://onthedial.oh2gba.eu/rig.html>
   Evaluated against UTC, including broadcasts crossing midnight, weekday rules
   such as `Mo-Fr`, `1.Sa`, `Last7`, `15Sep`, `MF-15`, validity dates and
   summer/winter-only entries.
-- Dial view (default): the tuned frequency stays in the middle of the list, lower
-  frequencies above it and higher ones below, like a tuning scale. Entries within the
-  chosen ± kHz range are shown in red. *View → Dial view* switches back to the plain
-  list, where the ± kHz value limits what is shown instead.
+- Dial scale: a radio-style scale above the list with the station names at their
+  frequencies and the VFO under the pointer. Wheel zooms, dragging looks around, a
+  double-click tunes there. *View → Dial* switches it off.
+- The list keeps the tuned frequency in the middle, lower frequencies above it and higher
+  ones below, like a tuning scale. Entries within the chosen ± kHz range are shown in red.
+  The wheel scrolls; Escape or the next VFO move recentres.
+- Listen online: *View → Online receiver* shows a KiwiSDR player that follows the tuned
+  frequency and the rig's mode through one of the public KiwiSDR receivers (directory
+  built in, own addresses welcome). The program identifies itself to the receiver as otd.
+- Without a rig: type a frequency into the search box, or use the arrow keys (1 kHz,
+  Page Up/Down 5 kHz, with Ctrl 0.1 kHz) while *Follow rig* is off.
 - *On air only* toggle, free-text filter (Escape clears it). Column widths follow the
   window width; right-click the header to choose the columns, double-click it to fit them.
 - Search: type "buzzer" and the whole database is searched. Several words must all match
@@ -45,7 +52,9 @@ How to hook up the radio: <https://onthedial.oh2gba.eu/rig.html>
 - Band indicator: the header shows the allocation of the tuned frequency (49 m broadcast, 40 m amateur,
   aeronautical mobile, maritime mobile, standard time) for the ITU region chosen in Settings.
   Well known unlicensed uses are named too, after the official allocation: pirate and free
-  radio bands, the 11 m freeband. The table lives in `data/bandplan.json`.
+  radio bands, the 11 m freeband. The table lives in `data/bandplan.json`. Under
+  *File → Settings → Data* the Finnish allocation table from Traficom's open data (CC BY 4.0)
+  can be switched on; the header then names the use of each sub-band in Finland.
 - Personal list: add your own identifications (Stations menu or right-click), edit, delete,
   import and export as CSV. They appear with source "Mine" and live in the same database.
 - Right-click a row for the matching sigidwiki.com page of the mode, or a wiki search for the station.
@@ -124,12 +133,12 @@ via a window rule for "otd".
 
 ## Flatpak
 
-`flatpak/eu.oh2gba.onthedial.yml` builds the app together with Hamlib on the KDE 6.8
+`flatpak/eu.oh2gba.otd.yml` builds the app together with Hamlib on the KDE 6.8
 runtime, so rigctld is available inside the sandbox:
 
 ```bash
-flatpak-builder --user --install --force-clean build-flatpak flatpak/eu.oh2gba.onthedial.yml
-flatpak run eu.oh2gba.onthedial
+flatpak-builder --user --install --force-clean build-flatpak flatpak/eu.oh2gba.otd.yml
+flatpak run eu.oh2gba.otd
 ```
 
 The same manifest is what a Flathub submission needs, together with the AppStream
@@ -137,8 +146,8 @@ metainfo in `data/`.
 
 ## Web page and source
 
-Web page: <https://onthedial.oh2gba.eu/>
-Source code: <https://github.com/oh2gba/onthedial>
+Web page: <https://otd.oh2gba.eu/>
+Source code: <https://github.com/oh2gba/otd>
 
 ## Project layout
 

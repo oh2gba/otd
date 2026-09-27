@@ -29,6 +29,18 @@ public:
     StationList entriesOf(const QString& source) const;
     int count(const QString& source = QString()) const;
 
+    // National allocation tables (what a sub-band is used for), e.g. Traficom.
+    struct Allocation
+    {
+        double lowKHz = 0.0;
+        double highKHz = 0.0;
+        QString service, usage, info, mode, emission, comment;
+    };
+    bool replaceAllocations(const QString& source, const QList<Allocation>& rows);
+    int allocationCount(const QString& source) const;
+    // every stored sub-band containing the frequency, narrowest first
+    QList<Allocation> allocationsAt(double kHz) const;
+
     // All entries with |kHz - centre| <= tolerance, nearest first, leaving
     // out the given sources.
     StationList lookup(double centreKHz, double toleranceKHz,

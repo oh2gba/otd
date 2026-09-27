@@ -1,4 +1,4 @@
-# AppImage build environment for On The Dial.
+# AppImage build environment for otd.
 # Ubuntu 22.04 (glibc 2.35) keeps the result usable on most distributions
 # from 2022 onwards; Qt 6.8 comes from the official binaries via aqtinstall.
 FROM ubuntu:22.04
@@ -11,13 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxkbcommon0 libxkbcommon-x11-0 libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
         libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-sync1 \
         libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libx11-xcb1 libwayland-client0 \
-        libwayland-cursor0 libwayland-egl1 libsm6 libice6 libxrender1 \
+        libwayland-cursor0 libwayland-egl1 libsm6 libice6 libxrender1 libpulse0 \
     && rm -rf /var/lib/apt/lists/*
 
 ARG QT_VERSION=6.8.3
 RUN pip3 install --no-cache-dir aqtinstall \
     && aqt install-qt --outputdir /opt/qt linux desktop ${QT_VERSION} linux_gcc_64 \
-         --archives qtbase qtwayland qtsvg icu \
+         -m qtwebsockets qtmultimedia --archives qtbase qtwayland qtsvg icu qtwebsockets qtmultimedia \
     && rm -rf /root/.cache
 
 RUN mkdir -p /opt/linuxdeploy && cd /opt/linuxdeploy \

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build On The Dial (otd) inside a Docker container. Nothing is installed on the host;
+# Build otd (On The Dial) inside a Docker container. Nothing is installed on the host;
 # the only outputs are the docker image "otd-build" and ./build/.
 #
 #   ./build.sh            configure + build + run unit tests

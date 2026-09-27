@@ -1,4 +1,4 @@
-# Cross-build environment for the Windows binary of On The Dial.
+# Cross-build environment for the Windows binary of otd.
 # Debian's mingw-w64 GCC plus the official Qt 6 MinGW binaries fetched with
 # aqtinstall (and the matching Linux host tools for moc/rcc/uic).
 FROM debian:trixie-slim
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ARG QT_VERSION=6.8.3
 RUN pip3 install --break-system-packages --no-cache-dir aqtinstall \
-    && aqt install-qt --outputdir /opt/qt windows desktop ${QT_VERSION} win64_mingw --archives qtbase \
+    && aqt install-qt --outputdir /opt/qt windows desktop ${QT_VERSION} win64_mingw -m qtwebsockets qtmultimedia --archives qtbase qtwebsockets qtmultimedia \
     && aqt install-qt --outputdir /opt/qt linux desktop ${QT_VERSION} linux_gcc_64 --archives qtbase icu \
     && rm -rf /root/.cache
 

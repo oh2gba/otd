@@ -78,6 +78,10 @@ bool StationDb::createSchema()
         QStringLiteral("CREATE TABLE IF NOT EXISTS codes ("
                        " kind TEXT NOT NULL, code TEXT NOT NULL, name TEXT,"
                        " PRIMARY KEY (kind, code))"),
+        QStringLiteral("CREATE TABLE IF NOT EXISTS allocations ("
+                       " source TEXT NOT NULL, low_khz REAL NOT NULL, high_khz REAL NOT NULL,"
+                       " service TEXT, usage TEXT, info TEXT, mode TEXT, emission TEXT, comment TEXT)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_alloc_low ON allocations(low_khz)"),
     };
     for (const QString& sql : statements)
     {
@@ -561,4 +565,89 @@ QString StationDb::siteName(const QString& homeItu, const QString& siteCode) con
         return name.isEmpty() ? country : QStringLiteral("%1 (%2)").arg(name, country);
     }
     return name;
+}
+
+bool StationDb::replaceAllocations(const QString& source, const QList<Allocation>& rows)
+{
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    if (!db.transaction())
+    {
+        m_lastError = db.lastError().text();
+        return false;
+    }
+    QSqlQuery del(db);
+    del.prepare(QStringLiteral("DELETE FROM allocations WHERE source = ?"));
+    del.addBindValue(source);
+    if (!del.exec())
+    {
+        m_lastError = del.lastError().text();
+        db.rollback();
+        return false;
+    }
+    QSqlQuery ins(db);
+    ins.prepare(QStringLiteral("INSERT INTO allocations (source, low_khz, high_khz, service, usage, info,"
+                               " mode, emission, comment) VALUES (?,?,?,?,?,?,?,?,?)"));
+    for (const Allocation& a : rows)
+    {
+        ins.addBindValue(source);
+        ins.addBindValue(a.lowKHz);
+        ins.addBindValue(a.highKHz);
+        ins.addBindValue(a.service);
+        ins.addBindValue(a.usage);
+        ins.addBindValue(a.info);
+        ins.addBindValue(a.mode);
+        ins.addBindValue(a.emission);
+        ins.addBindValue(a.comment);
+        if (!ins.exec())
+        {
+            m_lastError = ins.lastError().text();
+            db.rollback();
+            return false;
+        }
+    }
+    if (!db.commit())
+    {
+        m_lastError = db.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+int StationDb::allocationCount(const QString& source) const
+{
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("SELECT COUNT(*) FROM allocations WHERE source = ?"));
+    q.addBindValue(source);
+    if (q.exec() && q.next())
+        return q.value(0).toInt();
+    return 0;
+}
+
+QList<StationDb::Allocation> StationDb::allocationsAt(double kHz) const
+{
+    QList<Allocation> out;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("SELECT low_khz, high_khz, service, usage, info, mode, emission, comment"
+                             " FROM allocations WHERE low_khz <= ? AND high_khz >= ?"
+                             " ORDER BY (high_khz - low_khz), low_khz"));
+    q.addBindValue(kHz);
+    q.addBindValue(kHz);
+    if (!q.exec())
+        return out;
+    while (q.next())
+    {
+        Allocation a;
+        a.lowKHz = q.value(0).toDouble();
+        a.highKHz = q.value(1).toDouble();
+        a.service = q.value(2).toString();
+        a.usage = q.value(3).toString();
+        a.info = q.value(4).toString();
+        a.mode = q.value(5).toString();
+        a.emission = q.value(6).toString();
+        a.comment = q.value(7).toString();
+        out.push_back(a);
+    }
+    return out;
 }

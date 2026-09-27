@@ -1,5 +1,8 @@
 <RCC>
   <qresource prefix="/">
     <file alias="otd.svg">../../data/otd.svg</file>
+    <file alias="otd-64.png">../../data/otd-64.png</file>
+    <file alias="otd-128.png">../../data/otd-128.png</file>
+    <file alias="otd-256.png">../../data/otd-256.png</file>
   </qresource>
 </RCC>

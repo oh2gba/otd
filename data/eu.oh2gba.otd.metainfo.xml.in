@@ -1,20 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>eu.oh2gba.onthedial</id>
+  <id>eu.oh2gba.otd</id>
   <launchable type="desktop-id">@OTD_DESKTOP_ID@.desktop</launchable>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>On The Dial</name>
+  <name>otd</name>
   <developer id="eu.oh2gba"><name>John, OH2GBA</name></developer>
   <summary>Who is on the shortwave frequency you are tuned to</summary>
   <description>
-    <p>On The Dial follows the VFO of your receiver through Hamlib's rigctld and shows which
+    <p>otd (On The Dial) follows the VFO of your receiver through Hamlib's rigctld and shows which
        shortwave stations are scheduled on or near that frequency right now: broadcasters,
        utility stations, time signals and oddities such as The Buzzer.</p>
     <ul>
       <li>Live on-air status from the EiBi, HFCC and Aoki schedules, evaluated against UTC</li>
+      <li>A radio-style dial scale and a list that keeps the tuned frequency in the middle</li>
+      <li>Listen through public KiwiSDR receivers, following the same dial</li>
       <li>Follows the rig, or type a frequency; double-click a station to tune there</li>
-      <li>Search the whole database by station, language, site or country</li>
+      <li>Search the whole database by station, language, site or country, with exclusions</li>
+      <li>Band indicator, optionally with Traficom's detailed allocation table (Finland)</li>
       <li>Mode column: AM, USB, LSB, CW, DRM, RTTY, FAX, HFDL</li>
       <li>Your own list of identifications, with import and export</li>
       <li>Can start rigctld for you; works with gqrx and SDR++ rigctl servers too</li>
@@ -23,17 +26,30 @@
   <screenshots>
     <screenshot type="default">
       <caption>Stations on air near the tuned frequency</caption>
-      <image>https://onthedial.oh2gba.eu/screenshot.png</image>
+      <image>https://otd.oh2gba.eu/screenshot.png</image>
     </screenshot>
   </screenshots>
-  <url type="homepage">https://onthedial.oh2gba.eu/</url>
-  <url type="help">https://onthedial.oh2gba.eu/rig.html</url>
-  <url type="bugtracker">https://github.com/oh2gba/onthedial/issues</url>
-  <url type="vcs-browser">https://github.com/oh2gba/onthedial</url>
+  <url type="homepage">https://otd.oh2gba.eu/</url>
+  <url type="help">https://otd.oh2gba.eu/rig.html</url>
+  <url type="bugtracker">https://github.com/oh2gba/otd/issues</url>
+  <url type="vcs-browser">https://github.com/oh2gba/otd</url>
   <content_rating type="oars-1.1"/>
   <categories><category>HamRadio</category><category>Network</category></categories>
   <keywords><keyword>shortwave</keyword><keyword>SWL</keyword><keyword>rigctld</keyword><keyword>EiBi</keyword></keywords>
   <releases>
+    <release version="1.5.0" date="2026-09-27">
+      <description>
+        <ul>
+          <li>The program is now called otd; the web page moved to otd.oh2gba.eu</li>
+          <li>Dial scale: a radio-style scale above the list with the stations at their frequencies; wheel to zoom, drag to look around, double-click to tune</li>
+          <li>Listen online: a KiwiSDR player that follows the tuned frequency and mode, with the public receiver directory built in</li>
+          <li>Traficom's Finnish frequency allocation table as an optional data source for a much finer band indicator</li>
+          <li>Search: a number jumps to that frequency; arrow keys tune when no rig is followed</li>
+          <li>The mouse wheel scrolls the dial view again; Escape or the next VFO move brings the tuned frequency back to the middle</li>
+          <li>Settings on three tabs; light or dark colours with --palette; the icon shows on every platform</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.4.1" date="2026-09-22">
       <description><p>Search results keep their order when a result is tuned: sorted on air first, then by frequency, and the list is not reloaded while the VFO moves.</p></description>
     </release>

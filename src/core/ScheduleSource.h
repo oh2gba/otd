@@ -36,8 +36,8 @@ public:
 
     QString season() const;
     QDateTime lastUpdate() const;
-    bool isStale(int maxAgeDays) const;
-    int count() const;
+    virtual bool isStale(int maxAgeDays) const;
+    virtual int count() const;
 
     // Outcome of download(): status is the HTTP code (304 = unchanged, 200 =
     // body in data), or 0 with error set when the server could not be reached.

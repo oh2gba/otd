@@ -6,6 +6,7 @@
 #include "core/SigidWiki.h"
 #include "core/AokiSource.h"
 #include "core/EibiSource.h"
+#include "core/TraficomSource.h"
 #include "core/HfccSource.h"
 #include "core/RigClient.h"
 #include "core/RigctldLauncher.h"
@@ -16,7 +17,11 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QCloseEvent>
+#include <QComboBox>
 #include <QEvent>
+#include <QAbstractItemView>
+#include <QKeyEvent>
+#include <QAbstractSpinBox>
 #include <QResizeEvent>
 #include <QScreen>
 #include <QSet>
@@ -89,6 +94,7 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
     m_updater->addSource(new EibiSource(m_db, m_nam, this));
     m_updater->addSource(new HfccSource(m_db, m_nam, this));
     m_updater->addSource(new AokiSource(m_db, m_nam, this));
+    m_updater->addSource(new TraficomSource(m_db, m_nam, this));
     m_updateCheck = new UpdateCheck(m_nam, this);
     connect(m_updateCheck, &UpdateCheck::finished, this, &MainWindow::showUpdateResult);
     m_rig = new RigClient(this);
@@ -159,6 +165,8 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
     m_table->horizontalHeader()->setSectionsClickable(false);
     // columns grow and shrink with the window
     m_table->viewport()->installEventFilter(this);
+    // arrow keys tune in manual mode, wherever the focus is
+    qApp->installEventFilter(this);
 
     if (startKHz > 0.0)
     {
@@ -256,8 +264,16 @@ void MainWindow::applyLauncher()
 
 void MainWindow::buildUi()
 {
-    setWindowTitle(QStringLiteral("On The Dial"));
-    setWindowIcon(QIcon(QStringLiteral(":/otd.svg")));
+    setWindowTitle(QStringLiteral("otd"));
+    // PNG sizes first: they need no SVG plugin, so the icon shows on every
+    // platform; the SVG covers any other size
+    QIcon icon;
+    icon.addFile(QStringLiteral(":/otd-64.png"), QSize(64, 64));
+    icon.addFile(QStringLiteral(":/otd-128.png"), QSize(128, 128));
+    icon.addFile(QStringLiteral(":/otd-256.png"), QSize(256, 256));
+    icon.addFile(QStringLiteral(":/otd.svg"));
+    setWindowIcon(icon);
+    QApplication::setWindowIcon(icon);
 
     // --- menu ---------------------------------------------------------
     QMenu* file = menuBar()->addMenu(tr("&File"));
@@ -282,27 +298,52 @@ void MainWindow::buildUi()
                         this, &MainWindow::openMyStations);
 
     QMenu* view = menuBar()->addMenu(tr("&View"));
-    m_dialAction = view->addAction(tr("&Dial view (VFO in the middle)"));
-    m_dialAction->setCheckable(true);
-    m_dialAction->setChecked(true);
-    connect(m_dialAction, &QAction::toggled, this, [this](bool on) {
-        m_settings.dialView = on;
-        updateToleranceHint();
-        refreshLookup();
+    m_scaleAction = view->addAction(tr("&Dial"));
+    m_scaleAction->setCheckable(true);
+    m_scaleAction->setChecked(true);
+    connect(m_scaleAction, &QAction::toggled, this, [this](bool on) {
+        m_settings.showScale = on;
+        m_scale->setVisible(on);
+        if (on)
+            updateScale();
     });
+    m_tableAction = view->addAction(tr("Station &table"));
+    m_tableAction->setCheckable(true);
+    m_tableAction->setChecked(true);
+    connect(m_tableAction, &QAction::toggled, this, [this](bool on) {
+        m_settings.showTable = on;
+        m_table->setVisible(on);
+        if (on)
+        {
+            centreOnMarker();
+            QTimer::singleShot(0, this, &MainWindow::centreOnMarker);
+        }
+    });
+    m_playerAction = view->addAction(tr("&Online receiver (KiwiSDR)"));
+    m_playerAction->setCheckable(true);
+    m_playerAction->setChecked(false);
+    connect(m_playerAction, &QAction::toggled, this, [this](bool on) {
+        m_settings.showPlayer = on;
+        m_player->setVisible(on);
+        if (on)
+            m_kiwiDirectory->refresh();   // at most once a day
+        else
+            m_player->stop();
+    });
+    view->addSeparator();
     m_onTopAction = view->addAction(tr("Always on &top"));
     m_onTopAction->setCheckable(true);
     connect(m_onTopAction, &QAction::toggled, this, &MainWindow::onAlwaysOnTopToggled);
 
     QMenu* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&Connecting your radio (web)"), this, []() {
-        QDesktopServices::openUrl(QUrl(QStringLiteral("https://onthedial.oh2gba.eu/rig.html")));
+        QDesktopServices::openUrl(QUrl(QStringLiteral("https://otd.oh2gba.eu/rig.html")));
     });
     help->addAction(tr("&Signal Identification Wiki (web)"), this, []() {
         QDesktopServices::openUrl(SigidWiki::homeUrl());
     });
     help->addSeparator();
-    help->addAction(tr("&About On The Dial"), this, &MainWindow::about);
+    help->addAction(tr("&About otd"), this, &MainWindow::about);
 
     // --- header -------------------------------------------------------
     m_freqLabel = new QLabel(QStringLiteral("---.--- kHz"));
@@ -381,6 +422,8 @@ void MainWindow::buildUi()
     connect(esc, &QShortcut::activated, this, [this]() {
         if (!m_filter->text().isEmpty())
             m_filter->clear();
+        else
+            centreOnMarker();   // back to the VFO after scrolling around
     });
     connect(m_filter, &QLineEdit::textChanged, this, &MainWindow::onFilterChanged);
 
@@ -421,11 +464,34 @@ void MainWindow::buildUi()
     // per pixel, so the dial view can put the VFO exactly in the middle
     m_table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 
+    m_scale = new DialScale;
+    connect(m_scale, &DialScale::tuneRequested, this, [this](double kHz) {
+        tuneTo(kHz, QString());
+    });
+
+    m_player = new KiwiPlayer;
+    m_player->setVisible(false);
+    m_kiwiDirectory = new KiwiDirectory(m_db, m_nam, this);
+    m_player->setDirectory(m_kiwiDirectory->receivers());
+    connect(m_kiwiDirectory, &KiwiDirectory::updated, this, [this]() {
+        m_player->setDirectory(m_kiwiDirectory->receivers());
+    });
+    connect(m_kiwiDirectory, &KiwiDirectory::failed, this, [this](const QString& why) {
+        statusBar()->showMessage(tr("KiwiSDR directory not available: %1").arg(why), 8000);
+    });
+    connect(m_player, &KiwiPlayer::receiversChanged, this, [this]() {
+        m_settings.kiwiReceivers = m_player->receivers();
+        m_settings.kiwiCurrent = m_player->currentReceiver();
+        m_settings.save(m_db);
+    });
+
     auto* central = new QWidget;
     auto* layout = new QVBoxLayout(central);
     layout->addLayout(header);
     layout->addLayout(controls);
+    layout->addWidget(m_scale);
     layout->addWidget(m_table, 1);
+    layout->addWidget(m_player);
     setCentralWidget(central);
 
     // --- status bar ---------------------------------------------------
@@ -499,10 +565,27 @@ void MainWindow::applySettings()
         src->setBaseUrl(QUrl(m_settings.aokiUrl));
         src->setEnabled(m_settings.aokiEnabled);
     }
+    if (ScheduleSource* src = m_updater->source(QStringLiteral("traficom")))
+    {
+        src->setBaseUrl(QUrl(m_settings.traficomUrl));
+        src->setEnabled(m_settings.traficomEnabled);
+    }
 
     const QSignalBlocker b1(m_tolerance), b2(m_onAirOnly), b3(m_followRig), b4(m_onTopAction),
-        b5(m_dialAction);
-    m_dialAction->setChecked(m_settings.dialView);
+        b5(m_scaleAction), b6(m_tableAction);
+    m_scaleAction->setChecked(m_settings.showScale);
+    m_scale->setVisible(m_settings.showScale);
+    m_tableAction->setChecked(m_settings.showTable);
+    m_table->setVisible(m_settings.showTable);
+    {
+        const QSignalBlocker b7(m_playerAction);
+        m_playerAction->setChecked(m_settings.showPlayer);
+    }
+    m_player->setVisible(m_settings.showPlayer);
+    m_player->setReceivers(m_settings.kiwiReceivers, m_settings.kiwiCurrent);
+    m_player->setVolume(m_settings.kiwiVolume);
+    if (m_settings.showPlayer)
+        m_kiwiDirectory->refresh();
     m_tolerance->setValue(m_settings.toleranceKHz);
     updateToleranceHint();
     m_onAirOnly->setChecked(m_settings.onAirOnly);
@@ -536,13 +619,65 @@ void MainWindow::updateHeader()
         m_modeLabel->setText(tr("manual"));
 
     QString band = m_centreKHz > 0.0 ? m_bandPlan.describe(m_centreKHz, m_settings.ituRegion) : QString();
+    const QVector<BandPlan::Band> bands = m_bandPlan.lookup(m_centreKHz, m_settings.ituRegion);
+    QString kind = bands.isEmpty() ? QString() : bands.first().kind;
+    QString tip = tr("Allocation of the tuned frequency (ITU region set in Settings)");
+    if (m_settings.traficomEnabled && m_centreKHz > 0.0)
+    {
+        // the national table first, then the informal uses of the built-in plan
+        const QList<StationDb::Allocation> rows = m_db->allocationsAt(m_centreKHz);
+        if (!rows.isEmpty())
+        {
+            QStringList names;
+            for (const StationDb::Allocation& a : rows)
+            {
+                QString n = a.usage.isEmpty() ? a.service : a.usage;
+                if (!a.service.isEmpty() && a.service.compare(n, Qt::CaseInsensitive) != 0)
+                    n += QStringLiteral(" (%1)").arg(a.service.toLower());
+                if (!names.contains(n))
+                    names << n;
+            }
+            for (const BandPlan::Band& b : bands)
+                if (b.kind == QLatin1String("informal"))
+                    names << b.name;
+            if (names.size() > 3)
+            {
+                const int more = names.size() - 3;
+                names = names.mid(0, 3);
+                names << tr("+%1 more").arg(more);
+            }
+            band = names.join(QStringLiteral(" \u00b7 "));
+            const QString svc = rows.first().service.toUpper();
+            kind = svc.contains(QLatin1String("BROADCAST")) ? QStringLiteral("broadcast")
+                 : svc.contains(QLatin1String("AMATEUR")) ? QStringLiteral("amateur")
+                 : svc.contains(QLatin1String("AERONAUTICAL")) ? QStringLiteral("aero")
+                 : svc.contains(QLatin1String("MARITIME")) ? QStringLiteral("maritime")
+                 : svc.contains(QLatin1String("STANDARD FREQ")) ? QStringLiteral("time")
+                 : svc.contains(QLatin1String("RADIONAVIGATION")) ? QStringLiteral("beacon")
+                 : QStringLiteral("other");
+            tip = tr("Use in Finland per Traficom's allocation table (CC BY 4.0):\n");
+            for (const StationDb::Allocation& a : rows)
+            {
+                tip += QStringLiteral("%1 - %2 kHz: %3").arg(a.lowKHz, 0, 'f', 3).arg(a.highKHz, 0, 'f', 3)
+                           .arg(a.usage.isEmpty() ? a.service : a.usage);
+                if (!a.service.isEmpty() && a.service.compare(a.usage, Qt::CaseInsensitive) != 0)
+                    tip += QStringLiteral(" [%1]").arg(a.service);
+                if (!a.mode.isEmpty())
+                    tip += QStringLiteral(", %1").arg(a.mode);
+                if (!a.info.isEmpty())
+                    tip += QStringLiteral(". %1").arg(a.info);
+                if (!a.comment.isEmpty())
+                    tip += QStringLiteral(" %1").arg(a.comment);
+                tip += QLatin1Char('\n');
+            }
+        }
+    }
+    m_bandLabel->setToolTip(tip.trimmed());
     if (band.isEmpty() && m_centreKHz > 0.0)
         band = tr("no allocation listed");
     QString colour;
-    const QVector<BandPlan::Band> bands = m_bandPlan.lookup(m_centreKHz, m_settings.ituRegion);
-    if (!bands.isEmpty())
+    if (!kind.isEmpty())
     {
-        const QString kind = bands.first().kind;
         if (kind == QLatin1String("broadcast"))     colour = QStringLiteral("#e8b339");
         else if (kind == QLatin1String("amateur"))  colour = QStringLiteral("#7ee787");
         else if (kind == QLatin1String("aero"))     colour = QStringLiteral("#79c0ff");
@@ -573,10 +708,30 @@ void MainWindow::setCentreKHz(double kHz, bool fromRig)
 
 void MainWindow::refreshLookup()
 {
-    const QString text = m_filter->text().trimmed();
+    QString text = m_filter->text().trimmed();
+    // a number in the search box is a frequency: go there instead of searching
+    bool numeric = false;
+    const double typedKHz = QString(text).replace(QLatin1Char(','), QLatin1Char('.')).toDouble(&numeric);
+    if (numeric && typedKHz > 0.0)
+    {
+        text.clear();
+        if (!qFuzzyCompare(typedKHz + 1.0, m_centreKHz + 1.0))
+        {
+            if (m_followRig->isChecked())
+            {
+                const QSignalBlocker b(m_followRig);
+                m_followRig->setChecked(false);   // manual from here on
+                m_settings.followRig = false;
+                m_freqEdit->setReadOnly(false);
+            }
+            m_centreKHz = typedKHz;
+            m_freqEdit->setText(QString::number(typedKHz, 'f', 3));
+            updateHeader();
+        }
+    }
 
     StationList list;
-    const bool dial = m_dialAction->isChecked() && text.isEmpty() && m_centreKHz > 0.0;
+    const bool dial = text.isEmpty() && m_centreKHz > 0.0;
     m_dialActive = dial;
     if (!text.isEmpty())
     {
@@ -588,6 +743,8 @@ void MainWindow::refreshLookup()
         {
             m_model->setCentre(m_centreKHz);
             updateCountLabel();
+            updateScale();
+            updatePlayer();
             return;
         }
         m_lastSearchKey = key;
@@ -597,7 +754,7 @@ void MainWindow::refreshLookup()
     {
         m_lastSearchKey.clear();
         if (dial)
-            list = m_db->around(m_centreKHz, 300, enabledSources());
+            list = m_db->around(m_centreKHz, 1000, enabledSources());
         else if (m_centreKHz > 0.0)
             list = m_db->lookup(m_centreKHz, m_tolerance->value(), enabledSources());
     }
@@ -622,6 +779,8 @@ void MainWindow::refreshLookup()
     }
     m_lastEvalMinute = QDateTime::currentDateTimeUtc().time().minute();
     updateCountLabel();
+    updateScale();
+    updatePlayer();
     if (!m_columnsFitted)
         QTimer::singleShot(0, this, [this]() { fitColumns(); centreOnMarker(); });
 }
@@ -644,11 +803,19 @@ void MainWindow::onRowActivated(const QModelIndex& index)
                                        Qt::DisplayRole).toString();
 
 
+    tuneTo(kHz, mode, m_model->entryAt(src.row()).id);
+}
+
+void MainWindow::tuneTo(double kHz, const QString& mode, qint64 flashId)
+{
     if (m_rig->isConnected())
     {
-        // a short blink on the row, as a receipt
-        m_model->setFlash(m_model->entryAt(src.row()).id);
-        QTimer::singleShot(350, this, [this]() { m_model->setFlash(0); });
+        if (flashId != 0)
+        {
+            // a short blink on the row, as a receipt
+            m_model->setFlash(flashId);
+            QTimer::singleShot(350, this, [this]() { m_model->setFlash(0); });
+        }
         // Send it to the radio and let the display follow the rig's answer.
         m_rig->setFrequency(qRound64(kHz * 1000.0));
         static const QStringList rigModes = {QStringLiteral("AM"), QStringLiteral("USB"),
@@ -667,6 +834,44 @@ void MainWindow::onRowActivated(const QModelIndex& index)
     setCentreKHz(kHz, false);
 }
 
+// The scale shows one label per frequency: the best entry on it (on air
+// first), with the number of further entries.
+void MainWindow::updateScale()
+{
+    if (m_scale->isHidden())   // switched off in the View menu
+        return;
+    m_scale->setCentre(m_centreKHz);
+    m_scale->setHighlightKHz(m_tolerance->value());
+    if (!m_dialActive)
+        return;   // keep the last marks while a search is open
+    QVector<DialScale::Mark> marks;
+    const int rows = m_model->rowCount();
+    for (int r = 0; r < rows; ++r)
+    {
+        if (m_model->isBlank(r))
+            continue;
+        const StationEntry& e = m_model->entryAt(r);
+        const int rank = StationModel::rank(m_model->statusAt(r));
+        if (!marks.isEmpty() && qFuzzyCompare(marks.last().kHz + 1.0, e.kHz + 1.0))
+        {
+            DialScale::Mark& m = marks.last();
+            ++m.count;
+            if (rank < m.rank)
+            {
+                m.rank = rank;
+                m.name = e.station;
+            }
+            continue;
+        }
+        DialScale::Mark m;
+        m.kHz = e.kHz;
+        m.name = e.station;
+        m.rank = rank;
+        marks.push_back(m);
+    }
+    m_scale->setMarks(marks);
+}
+
 void MainWindow::updateCountLabel()
 {
     if (m_model->entryCount() == 0)
@@ -675,8 +880,7 @@ void MainWindow::updateCountLabel()
         return;
     }
     m_countLabel->setText((m_filter->text().trimmed().isEmpty()
-                               ? (m_dialAction->isChecked() ? tr("%1 on air / %2 around")
-                                                            : tr("%1 on air / %2 near"))
+                               ? tr("%1 on air / %2 around")
                                : tr("%1 on air / %2 found"))
                               .arg(m_model->onAirCount())
                               .arg(m_model->entryCount()));
@@ -802,7 +1006,9 @@ void MainWindow::updateDbStatus()
             parts << tr("%1: no data").arg(src->displayName());
             continue;
         }
-        parts << QStringLiteral("%1 %2: %3").arg(src->displayName(), src->season().toUpper()).arg(n);
+        parts << (src->season().isEmpty()
+                      ? QStringLiteral("%1: %2").arg(src->displayName()).arg(n)
+                      : QStringLiteral("%1 %2: %3").arg(src->displayName(), src->season().toUpper()).arg(n));
         const QDateTime updated = src->lastUpdate().toLocalTime();
         tip += tr("%1 %2: %3 entries, checked %4\n")
                    .arg(src->displayName(), src->season().toUpper())
@@ -831,6 +1037,17 @@ void MainWindow::onRigMode(const QString& mode, int)
 {
     m_rigMode = mode;
     updateHeader();
+    updatePlayer();
+}
+
+// The online receiver follows the tuned frequency, in the rig's mode when
+// there is a rig, otherwise in AM.
+void MainWindow::updatePlayer()
+{
+    if (m_centreKHz <= 0.0)
+        return;
+    const QString mode = (m_rigConnected && m_followRig->isChecked()) ? m_rigMode : QStringLiteral("AM");
+    m_player->tune(m_centreKHz, mode);
 }
 
 void MainWindow::onRigState(bool connected, const QString& message)
@@ -868,17 +1085,13 @@ void MainWindow::onFollowToggled(bool follow)
 void MainWindow::onToleranceChanged(double kHz)
 {
     m_settings.toleranceKHz = kHz;
-    if (m_dialAction->isChecked())
-        m_model->setHighlightKHz(kHz);   // recolour only, the list stays put
-    else
-        refreshLookup();
+    m_model->setHighlightKHz(kHz);   // recolour only, the list stays put
+    updateScale();
 }
 
 void MainWindow::updateToleranceHint()
 {
-    m_tolerance->setToolTip(m_dialAction->isChecked()
-        ? tr("Highlight entries this close to the tuned frequency")
-        : tr("Show entries this close to the tuned frequency"));
+    m_tolerance->setToolTip(tr("Entries this close to the tuned frequency are shown in red"));
 }
 
 void MainWindow::onOnAirOnlyToggled(bool on)
@@ -917,6 +1130,7 @@ void MainWindow::onUpdateFinished(bool ok, const QString& message)
     {
         m_lastSearchKey.clear();   // the data changed: search again
         refreshLookup();
+        updateHeader();            // the allocation table may have arrived
     }
     else if (m_db->count() == 0)
         QMessageBox::warning(this, tr("Database update failed"),
@@ -945,6 +1159,8 @@ void MainWindow::openSettings()
     m_settings.eibiEnabled = updated.eibiEnabled;
     m_settings.hfccEnabled = updated.hfccEnabled;
     m_settings.aokiEnabled = updated.aokiEnabled;
+    m_settings.traficomUrl = updated.traficomUrl;
+    m_settings.traficomEnabled = updated.traficomEnabled;
     const bool launcherChanged =
         updated.launchRigctld != m_settings.launchRigctld || updated.rigctldPath != m_settings.rigctldPath
         || updated.rigModel != m_settings.rigModel || updated.rigDevice != m_settings.rigDevice
@@ -985,17 +1201,19 @@ void MainWindow::tick()
 void MainWindow::about()
 {
     QMessageBox::about(
-        this, tr("About On The Dial"),
-        tr("<h3>On The Dial %1</h3>"
+        this, tr("About otd"),
+        tr("<h3>otd %1 <small style=\"font-weight:normal\">On The Dial</small></h3>"
            "<p>Shows which shortwave stations are scheduled on the frequency your "
            "receiver is tuned to, following the VFO through Hamlib's rigctld.</p>"
            "<p>Schedule data:</p><ul>"
            "<li><a href=\"http://www.eibispace.de/\">EiBi</a> by Eike Bierwirth, free for third-party software</li>"
            "<li><a href=\"http://www.hfcc.org/data/\">HFCC</a> public data files</li>"
            "<li><a href=\"http://www1.s2.starcat.ne.jp/ndxc/\">Aoki / Bi Newsletter</a> by the Nagoya DXers Circle</li>"
+           "<li><a href=\"https://www.avoindata.fi/data/fi/dataset/taajuusjakotaulukko\">Traficom</a> frequency allocation table, open data, CC BY 4.0</li>"
+           "<li>Public <a href=\"http://kiwisdr.com/public/\">KiwiSDR</a> receivers, listed via <a href=\"http://rx.linkfanel.net/\">rx.linkfanel.net</a></li>"
            "</ul><p>Thank you to everyone compiling these lists.</p>"
            "<p>Rig control through <a href=\"https://hamlib.github.io/\">Hamlib</a>'s rigctld. "
-           "Web page: <a href=\"https://onthedial.oh2gba.eu/\">onthedial.oh2gba.eu</a></p>"
+           "Web page: <a href=\"https://otd.oh2gba.eu/\">otd.oh2gba.eu</a></p>"
            "<p>Data directory: %2</p>"
            "<p>Licensed under the GNU GPL v3 or later. Built with Qt %3.</p>")
             .arg(QLatin1String(OTD_VERSION), m_dataDir.toHtmlEscaped(),
@@ -1061,10 +1279,38 @@ void MainWindow::showEvent(QShowEvent* event)
     QTimer::singleShot(0, this, &MainWindow::centreOnMarker);
 }
 
+// Without a rig the arrow keys are the tuning knob: Up/Down 1 kHz,
+// Page Up/Down 5 kHz, with Ctrl 0.1 kHz. Widgets that use the arrows
+// themselves (lists, spin boxes) keep them.
+bool MainWindow::tuneByKey(QKeyEvent* key)
+{
+    if (m_followRig->isChecked() || m_centreKHz <= 0.0)
+        return false;
+    double step = 0.0;
+    switch (key->key())
+    {
+    case Qt::Key_Up:       step = 1.0;  break;
+    case Qt::Key_Down:     step = -1.0; break;
+    case Qt::Key_PageUp:   step = 5.0;  break;
+    case Qt::Key_PageDown: step = -5.0; break;
+    default: return false;
+    }
+    if (key->modifiers() & Qt::ControlModifier)
+        step /= 10.0;
+    QWidget* focus = QApplication::focusWidget();
+    if (qobject_cast<QComboBox*>(focus) || qobject_cast<QAbstractSpinBox*>(focus)
+        || qobject_cast<QAbstractItemView*>(focus) || (focus && qobject_cast<QComboBox*>(focus->parentWidget())))
+        return false;
+    const double kHz = qMax(0.0, m_centreKHz + step);
+    m_freqEdit->setText(QString::number(kHz, 'f', 3));
+    setCentreKHz(kHz, false);
+    return true;
+}
+
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
-    // the dial view is anchored to the VFO: the wheel must not move it
-    if (watched == m_table->viewport() && event->type() == QEvent::Wheel && m_dialActive)
+    if (watched == qApp && event->type() == QEvent::KeyPress && isActiveWindow()
+        && tuneByKey(static_cast<QKeyEvent*>(event)))
         return true;
     if (watched == m_table->viewport() && event->type() == QEvent::Resize && isVisible())
     {
@@ -1151,6 +1397,9 @@ void MainWindow::closeEvent(QCloseEvent* event)
     m_db->setMeta(QStringLiteral("window.geometry"),
                   QString::fromLatin1(saveGeometry().toBase64()));
     saveColumns();
+    m_settings.kiwiVolume = m_player->volume();
+    m_settings.kiwiReceivers = m_player->receivers();
+    m_settings.kiwiCurrent = m_player->currentReceiver();
     m_settings.save(m_db);
     QMainWindow::closeEvent(event);
 }

@@ -14,7 +14,7 @@ build/
 builddir/
 data-local/
 dist/
-eu.oh2gba.onthedial.local.yml
+eu.oh2gba.otd.local.yml
 private/
 repo-flatpak/
 repo/

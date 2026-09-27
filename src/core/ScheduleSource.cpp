@@ -59,7 +59,7 @@ QNetworkReply* ScheduleSource::get(const QUrl& url, const QString& ifModifiedSin
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader,
                   QStringLiteral("otd/") + QLatin1String(OTD_VERSION)
-                      + QStringLiteral(" (+https://github.com/oh2gba/onthedial)"));
+                      + QStringLiteral(" (+https://github.com/oh2gba/otd)"));
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setTransferTimeout(90000);
@@ -110,7 +110,7 @@ void ScheduleSource::download(const QUrl& url, const QString& ifModifiedSince,
         QNetworkRequest req(t->url);
         req.setHeader(QNetworkRequest::UserAgentHeader,
                       QStringLiteral("otd/") + QLatin1String(OTD_VERSION)
-                          + QStringLiteral(" (+https://github.com/oh2gba/onthedial)"));
+                          + QStringLiteral(" (+https://github.com/oh2gba/otd)"));
         req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
         req.setTransferTimeout(90000);   // inactivity, not the whole transfer

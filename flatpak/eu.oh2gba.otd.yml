@@ -1,6 +1,6 @@
-# Flatpak manifest for On The Dial. Local build: flatpak/build.sh
+# Flatpak manifest for otd (On The Dial). Local build: flatpak/build.sh
 # For Flathub the "sources" of the last module point at a release tag.
-app-id: eu.oh2gba.onthedial
+app-id: eu.oh2gba.otd
 runtime: org.kde.Platform
 runtime-version: '6.11'
 sdk: org.kde.Sdk
@@ -45,17 +45,17 @@ modules:
         url: https://github.com/Hamlib/Hamlib/releases/download/4.7.2/hamlib-4.7.2.tar.gz
         sha256: ae1fcf2dbc80ea0786ea8f047b09399c3f7737d1930442f61a031708ed33e88f
 
-  - name: onthedial
+  - name: otd
     buildsystem: cmake-ninja
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DOTD_BUILD_TESTS=OFF
-      - -DOTD_DESKTOP_ID=eu.oh2gba.onthedial
+      - -DOTD_DESKTOP_ID=eu.oh2gba.otd
     post-install:
-      - install -Dm644 LICENSE ${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/onthedial/LICENSE
+      - install -Dm644 LICENSE ${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/otd/LICENSE
       - install -Dm644 third_party/miniz/LICENSE ${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/miniz/LICENSE
     sources:
       - type: git
-        url: https://github.com/oh2gba/onthedial.git
+        url: https://github.com/oh2gba/otd.git
         tag: v1.4.1
         commit: c07be3c4d3bcdc0195210ab9294372f47b66ad29

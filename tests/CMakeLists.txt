@@ -16,3 +16,9 @@ otd_test(test_zip)
 otd_test(test_userlist)
 otd_test(test_bandplan)
 otd_test(test_updatecheck)
+otd_test(test_kiwi)
+otd_test(test_traficom)
+
+# manual tool, not a test: connects to a KiwiSDR and reports what arrives
+add_executable(kiwi_probe kiwi_probe.cpp)
+target_link_libraries(kiwi_probe PRIVATE otd_core Qt6::Multimedia)

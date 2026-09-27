@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "DialScale.h"
+#include "KiwiPlayer.h"
 #include "SettingsDialog.h"
 #include "core/BandPlan.h"
 #include "core/UpdateCheck.h"
+#include "core/KiwiDirectory.h"
 #include <QMainWindow>
 
 class QCheckBox;
@@ -36,6 +39,7 @@ protected:
     void showEvent(QShowEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+    bool tuneByKey(class QKeyEvent* key);
 
 private slots:
     void onRigFrequency(qint64 hz);
@@ -108,7 +112,15 @@ private:
     QLineEdit* m_filter = nullptr;
     QTableView* m_table = nullptr;
     QTableView* m_menuTable = nullptr;
-    QAction* m_dialAction = nullptr;
+    QAction* m_scaleAction = nullptr;
+    QAction* m_tableAction = nullptr;
+    QAction* m_playerAction = nullptr;
+    KiwiPlayer* m_player = nullptr;
+    KiwiDirectory* m_kiwiDirectory = nullptr;
+    void updatePlayer();
+    DialScale* m_scale = nullptr;
+    void updateScale();
+    void tuneTo(double kHz, const QString& mode, qint64 flashId = 0);
     QLabel* m_rigStatus = nullptr;
     QLabel* m_dbStatus = nullptr;
     QAction* m_updateAction = nullptr;

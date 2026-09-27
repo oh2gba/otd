@@ -8,19 +8,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 IMAGE=otd-build-flatpak:trixie
-MANIFEST=flatpak/eu.oh2gba.onthedial.yml
+MANIFEST=flatpak/eu.oh2gba.otd.yml
 mkdir -p .flatpak build-flatpak
 
 if [ "${1:-}" = "--run" ]; then
   # The host's flatpak can use the same store through FLATPAK_USER_DIR.
-  FLATPAK_USER_DIR="$PWD/.flatpak" exec flatpak run eu.oh2gba.onthedial
+  FLATPAK_USER_DIR="$PWD/.flatpak" exec flatpak run eu.oh2gba.otd
 fi
 
 if [ "${1:-}" = "--tag" ]; then
   USE=$MANIFEST
 else
   # must sit in the project root: sandboxed builds only read below the manifest
-  USE=eu.oh2gba.onthedial.local.yml
+  USE=eu.oh2gba.otd.local.yml
   python3 flatpak/local-manifest.py "$MANIFEST" "$USE"
 fi
 
@@ -56,6 +56,6 @@ docker run --rm --privileged -u "$(id -u):$(id -g)" \
 # (inside the container there is no session bus for the installer).
 export FLATPAK_USER_DIR="$PWD/.flatpak"
 flatpak --user remote-add --no-gpg-verify --if-not-exists otd-local "$PWD/repo"
-flatpak --user install -y --noninteractive --reinstall otd-local eu.oh2gba.onthedial >/dev/null
+flatpak --user install -y --noninteractive --reinstall otd-local eu.oh2gba.otd >/dev/null
 echo
 echo "Installed into ./.flatpak. Start it with:  flatpak/build.sh --run"

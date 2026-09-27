@@ -45,11 +45,11 @@ jobs:
         run: |
           brew install ninja
           pip3 install --break-system-packages aqtinstall
-          aqt install-qt --outputdir "$HOME/qt" mac desktop 6.8.3 clang_64 --archives qtbase
+          aqt install-qt --outputdir "$HOME/qt" mac desktop 6.8.3 clang_64 -m qtwebsockets qtmultimedia --archives qtbase qtwebsockets qtmultimedia
       - name: Build universal app bundle
         run: |
           QT="$HOME/qt/6.8.3/macos"
-          VERSION=$(sed -n 's/^project(onthedial VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          VERSION=$(sed -n 's/^project(otd VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_PREFIX_PATH="$QT" -DOTD_BUILD_TESTS=OFF \
                 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0

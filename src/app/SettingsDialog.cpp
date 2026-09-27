@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QLineEdit>
 #include "core/RigctldLauncher.h"
@@ -25,7 +26,9 @@ const char* kKeys[] = {"rig.host", "rig.port", "rig.pollMs", "view.toleranceKHz"
                        "data.hfccUrl", "data.aokiUrl", "data.eibiEnabled", "data.hfccEnabled",
                        "data.aokiEnabled", "rigctld.launch", "rigctld.path", "rigctld.model",
                        "rigctld.device", "rigctld.baud", "rigctld.extra", "view.ituRegion",
-                       "update.check", "update.url", "view.dial"};
+                       "update.check", "update.url", "view.scale", "view.table",
+                       "view.player", "kiwi.receivers", "kiwi.current", "kiwi.volume",
+                       "data.traficomUrl", "data.traficomEnabled"};
 QString key(int i) { return QStringLiteral("settings.") + QLatin1String(kKeys[i]); }
 bool toBool(const QString& v, bool fallback)
 {
@@ -65,7 +68,18 @@ void AppSettings::load(const StationDb* db)
     ituRegion = qBound(1, int(num(20, ituRegion)), 3);
     updateCheck = toBool(str(21, QString()), updateCheck);
     updateUrl = str(22, updateUrl);
-    dialView = toBool(str(23, QString()), dialView);
+    // the page moved on 2026-09-27; settings written before that still
+    // carry the old address (which redirects, but let us not rely on it)
+    if (updateUrl == QLatin1String("https://onthedial.oh2gba.eu/version.php"))
+        updateUrl = QStringLiteral("https://otd.oh2gba.eu/version.php");
+    showScale = toBool(str(23, QString()), showScale);
+    showTable = toBool(str(24, QString()), showTable);
+    showPlayer = toBool(str(25, QString()), showPlayer);
+    kiwiReceivers = str(26, QString()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    kiwiCurrent = str(27, kiwiCurrent);
+    kiwiVolume = qBound(0, int(num(28, kiwiVolume)), 100);
+    traficomUrl = str(29, traficomUrl);
+    traficomEnabled = toBool(str(30, QString()), traficomEnabled);
 }
 
 void AppSettings::save(StationDb* db) const
@@ -79,7 +93,9 @@ void AppSettings::save(StationDb* db) const
         QString::number(aokiEnabled ? 1 : 0), QString::number(launchRigctld ? 1 : 0),
         rigctldPath, QString::number(rigModel), rigDevice, QString::number(rigBaud),
         rigctldExtra, QString::number(ituRegion), QString::number(updateCheck ? 1 : 0), updateUrl,
-        QString::number(dialView ? 1 : 0)};
+        QString::number(showScale ? 1 : 0), QString::number(showTable ? 1 : 0),
+        QString::number(showPlayer ? 1 : 0), kiwiReceivers.join(QLatin1Char('\n')), kiwiCurrent,
+        QString::number(kiwiVolume), traficomUrl, QString::number(traficomEnabled ? 1 : 0)};
     for (int i = 0; i < int(sizeof(kKeys) / sizeof(kKeys[0])); ++i)
         db->setMeta(key(i), values[i]);
 }
@@ -162,7 +178,7 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     m_tolerance->setDecimals(1);
     m_tolerance->setSuffix(tr(" kHz"));
     m_tolerance->setValue(cur.toleranceKHz);
-    viewForm->addRow(tr("Default search width (±):"), m_tolerance);
+    viewForm->addRow(tr("Highlight range (±):"), m_tolerance);
     m_region = new QComboBox;
     m_region->addItem(tr("Region 1: Europe, Africa, Middle East, Russia"), 1);
     m_region->addItem(tr("Region 2: the Americas"), 2);
@@ -171,14 +187,54 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     m_region->setToolTip(tr("Band allocations differ slightly between the three ITU regions"));
     viewForm->addRow(tr("ITU region (band plan):"), m_region);
 
-    auto* dataBox = new QGroupBox(tr("Databases"));
-    auto* dataForm = new QFormLayout(dataBox);
+    // Downloaded data: one line per source, the box and the address in
+    // two aligned columns
+    auto* dataBox = new QGroupBox(tr("Downloaded data"));
+    auto* grid = new QGridLayout(dataBox);
+    grid->setColumnStretch(2, 1);
+    int row = 0;
+    auto addSource = [&](const QString& label, const QString& note, bool enabled, const QString& url,
+                         QCheckBox** box, QLineEdit** edit) {
+        *box = new QCheckBox(label);
+        (*box)->setChecked(enabled);
+        if (!note.isEmpty())
+            (*box)->setToolTip(note);
+        *edit = new QLineEdit(url);
+        (*edit)->setMinimumWidth(360);
+        (*edit)->setEnabled(enabled);
+        connect(*box, &QCheckBox::toggled, *edit, &QLineEdit::setEnabled);
+        grid->addWidget(*box, row, 0);
+        grid->addWidget(*edit, row, 1, 1, 2);
+        ++row;
+    };
+    auto* schedules = new QLabel(tr("Schedules"));
+    schedules->setStyleSheet(QStringLiteral("font-weight: bold;"));
+    grid->addWidget(schedules, row++, 0, 1, 3);
+    addSource(tr("EiBi"), tr("Eike Bierwirth's frequency list, free for third-party software"),
+              cur.eibiEnabled, cur.eibiUrl, &m_eibiOn, &m_eibiUrl);
+    addSource(tr("HFCC"), tr("Public data files of the HF Coordination Conference"),
+              cur.hfccEnabled, cur.hfccUrl, &m_hfccOn, &m_hfccUrl);
+    addSource(tr("Aoki"), tr("Bi Newsletter shortwave schedule (Nagoya DXers Circle)"),
+              cur.aokiEnabled, cur.aokiUrl, &m_aokiOn, &m_aokiUrl);
+    auto* tables = new QLabel(tr("Frequency allocation table"));
+    tables->setStyleSheet(QStringLiteral("font-weight: bold;"));
+    grid->addWidget(tables, row++, 0, 1, 3);
+    addSource(tr("Traficom (Finland)"),
+              tr("The Finnish national allocation table from Traficom's open data (CC BY 4.0).\n"
+                 "When on, the band indicator shows what each sub-band is used for in Finland,\n"
+                 "far finer than the built-in ITU band plan."),
+              cur.traficomEnabled, cur.traficomUrl, &m_traficomOn, &m_traficomUrl);
     m_refreshDays = new QSpinBox;
     m_refreshDays->setRange(1, 90);
     m_refreshDays->setSuffix(tr(" days"));
     m_refreshDays->setValue(cur.refreshDays);
-    dataForm->addRow(tr("Refresh when older than:"), m_refreshDays);
+    grid->addWidget(new QLabel(tr("Check for new files when older than:")), row, 0, 1, 2, Qt::AlignRight);
+    grid->addWidget(m_refreshDays, row, 2, Qt::AlignLeft);
+    ++row;
 
+    auto* programBox = new QGroupBox(tr("Program"));
+    auto* programGrid = new QGridLayout(programBox);
+    programGrid->setColumnStretch(1, 1);
     m_updateOn = new QCheckBox(tr("Check for a new version once a day"));
     m_updateOn->setChecked(cur.updateCheck);
     m_updateOn->setToolTip(tr("Asks the project page for the current version. The request contains "
@@ -186,21 +242,8 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     m_updateUrl = new QLineEdit(cur.updateUrl);
     m_updateUrl->setEnabled(cur.updateCheck);
     connect(m_updateOn, &QCheckBox::toggled, m_updateUrl, &QLineEdit::setEnabled);
-    dataForm->addRow(m_updateOn, m_updateUrl);
-
-    auto addSource = [&](const QString& label, bool enabled, const QString& url,
-                         QCheckBox** box, QLineEdit** edit) {
-        *box = new QCheckBox(label);
-        (*box)->setChecked(enabled);
-        *edit = new QLineEdit(url);
-        (*edit)->setMinimumWidth(340);
-        (*edit)->setEnabled(enabled);
-        connect(*box, &QCheckBox::toggled, *edit, &QLineEdit::setEnabled);
-        dataForm->addRow(*box, *edit);
-    };
-    addSource(tr("EiBi"), cur.eibiEnabled, cur.eibiUrl, &m_eibiOn, &m_eibiUrl);
-    addSource(tr("HFCC"), cur.hfccEnabled, cur.hfccUrl, &m_hfccOn, &m_hfccUrl);
-    addSource(tr("Aoki"), cur.aokiEnabled, cur.aokiUrl, &m_aokiOn, &m_aokiUrl);
+    programGrid->addWidget(m_updateOn, 0, 0);
+    programGrid->addWidget(m_updateUrl, 0, 1);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -211,14 +254,19 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     rigLayout->addWidget(rigBox);
     rigLayout->addWidget(launchBox);
     rigLayout->addStretch();
+    auto* viewTab = new QWidget;
+    auto* viewLayout = new QVBoxLayout(viewTab);
+    viewLayout->addWidget(viewBox);
+    viewLayout->addWidget(programBox);
+    viewLayout->addStretch();
     auto* dataTab = new QWidget;
     auto* dataLayout = new QVBoxLayout(dataTab);
-    dataLayout->addWidget(viewBox);
     dataLayout->addWidget(dataBox);
     dataLayout->addStretch();
     auto* tabs = new QTabWidget;
     tabs->addTab(rigTab, tr("Radio"));
-    tabs->addTab(dataTab, tr("Display and data"));
+    tabs->addTab(viewTab, tr("Display"));
+    tabs->addTab(dataTab, tr("Data"));
 
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(tabs);
@@ -284,6 +332,8 @@ AppSettings SettingsDialog::settings(const AppSettings& base) const
     s.eibiEnabled = m_eibiOn->isChecked();
     s.hfccEnabled = m_hfccOn->isChecked();
     s.aokiEnabled = m_aokiOn->isChecked();
+    s.traficomUrl = m_traficomUrl->text().trimmed();
+    s.traficomEnabled = m_traficomOn->isChecked();
     s.launchRigctld = m_launch->isChecked();
     s.rigctldPath = m_rigctldPath->text().trimmed();
     s.rigModel = m_model->currentData().toInt();

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Cross-build the Windows 64-bit package of On The Dial inside Docker.
+# Cross-build the Windows 64-bit package of otd inside Docker.
 # Output: dist/otd-<version>-windows-x64.zip containing otd.exe, the Qt
 # runtime and a copy of Hamlib's rigctld (LGPL) so nothing else is needed.
 set -euo pipefail
 cd "$(dirname "$0")"
 IMAGE=otd-build-windows:trixie
-VERSION=$(sed -n 's/^project(onthedial VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+VERSION=$(sed -n 's/^project(otd VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
 HAMLIB_VERSION=${HAMLIB_VERSION:-4.7.2}
 HAMLIB_URL="https://github.com/Hamlib/Hamlib/releases/download/${HAMLIB_VERSION}/hamlib-w64-${HAMLIB_VERSION}.zip"
 
@@ -25,9 +25,12 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src "$IMA
   cmake --build build-windows
 
   PKG=build-windows/pkg/otd
-  rm -rf build-windows/pkg && mkdir -p \$PKG/platforms \$PKG/sqldrivers \$PKG/styles \$PKG/tls \$PKG/hamlib
+  rm -rf build-windows/pkg && mkdir -p \$PKG/platforms \$PKG/sqldrivers \$PKG/styles \$PKG/tls \$PKG/multimedia \$PKG/hamlib
   cp build-windows/otd.exe \$PKG/
-  for lib in Qt6Core Qt6Gui Qt6Widgets Qt6Network Qt6Sql; do cp \$QT_TARGET/bin/\$lib.dll \$PKG/; done
+  for lib in Qt6Core Qt6Gui Qt6Widgets Qt6Network Qt6Sql Qt6WebSockets Qt6Multimedia; do cp \$QT_TARGET/bin/\$lib.dll \$PKG/; done
+  # audio output for the KiwiSDR player: the Windows Media Foundation backend
+  # (no ffmpeg DLLs needed)
+  cp \$QT_TARGET/plugins/multimedia/windowsmediaplugin.dll \$PKG/multimedia/
   cp \$QT_TARGET/plugins/platforms/qwindows.dll \$PKG/platforms/
   cp \$QT_TARGET/plugins/sqldrivers/qsqlite.dll \$PKG/sqldrivers/
   cp \$QT_TARGET/plugins/styles/qmodernwindowsstyle.dll \$PKG/styles/
@@ -49,8 +52,9 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src "$IMA
   cp LICENSE \$PKG/LICENSE.txt
   cp third_party/miniz/LICENSE \$PKG/LICENSE-miniz.txt
   cat > \$PKG/README.txt <<'TXT'
-On The Dial (otd) for Windows
+otd (On The Dial) for Windows
 =============================
+
 Unzip anywhere and start otd.exe. Everything the program needs is in this
 folder, including Hamlib's rigctld (in hamlib\\) for talking to your radio.
 
@@ -61,8 +65,8 @@ Settings and the station database are kept in
   %LOCALAPPDATA%\\onthedial\\otd\\
 or, if you prefer a portable setup, start it as:  otd.exe --data-dir .\\data
 
-Documentation: https://onthedial.oh2gba.eu/
-On The Dial is free software (GPL-3.0-or-later). Hamlib is LGPL, see
+Documentation: https://otd.oh2gba.eu/
+otd is free software (GPL-3.0-or-later). Hamlib is LGPL, see
 hamlib\\LICENSE-hamlib.txt; its source is at https://github.com/Hamlib/Hamlib
 TXT
   cd build-windows/pkg && rm -f ../../dist/otd-$VERSION-windows-x64.zip && zip -qr ../../dist/otd-$VERSION-windows-x64.zip otd

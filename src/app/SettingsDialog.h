@@ -20,7 +20,7 @@ struct AppSettings
     double toleranceKHz = 5.0;
     int ituRegion = 1;      // 1 Europe/Africa, 2 Americas, 3 Asia/Pacific
     bool updateCheck = true;
-    QString updateUrl = QStringLiteral("https://onthedial.oh2gba.eu/version.php");
+    QString updateUrl = QStringLiteral("https://otd.oh2gba.eu/version.php");
     int refreshDays = 7;
     QString eibiUrl = QStringLiteral("http://www.eibispace.de/dx/");
     QString hfccUrl = QStringLiteral("http://www.hfcc.org/data/");
@@ -28,6 +28,9 @@ struct AppSettings
     bool eibiEnabled = true;
     bool hfccEnabled = true;
     bool aokiEnabled = true;
+    // national allocation table: Traficom (Finland), CC BY 4.0
+    QString traficomUrl = QStringLiteral("https://opendata.traficom.fi/api/v13/Taajuusjakotaulukko");
+    bool traficomEnabled = false;
     // "start rigctld for me"
     bool launchRigctld = false;
     QString rigctldPath;
@@ -38,7 +41,12 @@ struct AppSettings
     bool onAirOnly = false;
     bool followRig = true;
     bool alwaysOnTop = false;
-    bool dialView = true;
+    bool showScale = true;
+    bool showTable = true;
+    bool showPlayer = false;
+    QStringList kiwiReceivers;
+    QString kiwiCurrent;
+    int kiwiVolume = 70;
 
     void load(const StationDb* db);
     void save(StationDb* db) const;
@@ -64,6 +72,8 @@ private:
     QCheckBox* m_eibiOn;
     QCheckBox* m_hfccOn;
     QCheckBox* m_aokiOn;
+    QCheckBox* m_traficomOn;
+    QLineEdit* m_traficomUrl;
     QLineEdit* m_eibiUrl;
     QLineEdit* m_hfccUrl;
     QLineEdit* m_aokiUrl;

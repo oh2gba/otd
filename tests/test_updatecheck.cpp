@@ -21,12 +21,12 @@ private slots:
     void parsing()
     {
         auto r = UpdateCheck::parseResponse(
-            "{\"version\":\"1.1.0\",\"url\":\"https://onthedial.oh2gba.eu/#download\",\"message\":\"Aoki list moved\"}",
+            "{\"version\":\"1.1.0\",\"url\":\"https://otd.oh2gba.eu/#download\",\"message\":\"Aoki list moved\"}",
             "1.0.2");
         QVERIFY(r.valid);
         QVERIFY(r.newer);
         QCOMPARE(r.latest, QStringLiteral("1.1.0"));
-        QCOMPARE(r.url, QStringLiteral("https://onthedial.oh2gba.eu/#download"));
+        QCOMPARE(r.url, QStringLiteral("https://otd.oh2gba.eu/#download"));
         QCOMPARE(r.message, QStringLiteral("Aoki list moved"));
 
         r = UpdateCheck::parseResponse("{\"version\":\"1.0.2\",\"url\":\"\",\"message\":\"\"}", "1.0.2");
