@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(otd VERSION 1.5.2 LANGUAGES C CXX)
+project(otd VERSION 1.5.3 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -69,6 +69,11 @@ add_executable(otd WIN32 MACOSX_BUNDLE
 )
 target_link_libraries(otd PRIVATE otd_core Qt6::Widgets Qt6::Gui Qt6::Multimedia)
 target_compile_definitions(otd PRIVATE OTD_DESKTOP_ID="${OTD_DESKTOP_ID}")
+if(WIN32)
+  # icon and version block for otd.exe
+  configure_file(data/otd.rc.in ${CMAKE_BINARY_DIR}/otd.rc @ONLY)
+  target_sources(otd PRIVATE ${CMAKE_BINARY_DIR}/otd.rc)
+endif()
 set_target_properties(otd PROPERTIES
   MACOSX_BUNDLE_BUNDLE_NAME "On The Dial"
   MACOSX_BUNDLE_GUI_IDENTIFIER "eu.oh2gba.otd"

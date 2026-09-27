@@ -34,7 +34,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: otd-windows-x64
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.exe
 
   macos:
     runs-on: macos-14

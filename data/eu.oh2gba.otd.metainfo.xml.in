@@ -37,6 +37,14 @@
   <categories><category>HamRadio</category><category>Network</category></categories>
   <keywords><keyword>shortwave</keyword><keyword>SWL</keyword><keyword>rigctld</keyword><keyword>EiBi</keyword></keywords>
   <releases>
+    <release version="1.5.3" date="2026-09-27">
+      <description>
+        <ul>
+          <li>Windows: an installer (otd-setup.exe) next to the portable zip, with a Start menu entry and an uninstaller; otd.exe carries its icon and version</li>
+          <li>The dial scale opens at 100 kHz and remembers the zoom</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.2" date="2026-09-27">
       <description><p>The program announces the desktop entry it was installed with, so the icon shows in the Flatpak on Wayland; the Flatpak gets sound output for the KiwiSDR player.</p></description>
     </release>

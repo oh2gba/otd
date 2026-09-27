@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Cross-build the Windows 64-bit package of otd inside Docker.
-# Output: dist/otd-<version>-windows-x64.zip containing otd.exe, the Qt
-# runtime and a copy of Hamlib's rigctld (LGPL) so nothing else is needed.
+# Cross-build the Windows 64-bit packages of otd inside Docker.
+# Output: dist/otd-<version>-windows-x64.zip (portable folder) and
+# dist/otd-<version>-setup.exe (NSIS installer), both containing otd.exe, the
+# Qt runtime and a copy of Hamlib's rigctld (LGPL) so nothing else is needed.
 set -euo pipefail
 cd "$(dirname "$0")"
 IMAGE=otd-build-windows:trixie
@@ -55,8 +56,9 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src "$IMA
 otd (On The Dial) for Windows
 =============================
 
-Unzip anywhere and start otd.exe. Everything the program needs is in this
-folder, including Hamlib's rigctld (in hamlib\\) for talking to your radio.
+This is the portable folder: unzip anywhere and start otd.exe. Everything the
+program needs is here, including Hamlib's rigctld (in hamlib\\) for talking to
+your radio. There is also an installer, otd-setup.exe, on the download page.
 
 First start: File > Settings > Radio, tick \"Start Hamlib's rigctld when the
 program starts\", pick your radio model, the COM port and the baud rate.
@@ -70,5 +72,14 @@ otd is free software (GPL-3.0-or-later). Hamlib is LGPL, see
 hamlib\\LICENSE-hamlib.txt; its source is at https://github.com/Hamlib/Hamlib
 TXT
   cd build-windows/pkg && rm -f ../../dist/otd-$VERSION-windows-x64.zip && zip -qr ../../dist/otd-$VERSION-windows-x64.zip otd
+  cd ../..
+
+  # The installer: File and Delete lines generated from the folder, so
+  # nothing is missed and the uninstaller removes exactly what was put there.
+  python3 windows/nsis-lists.py build-windows/pkg/otd build-windows/pkg/files.nsh build-windows/pkg/delete.nsh
+  makensis -V2 -DVERSION=$VERSION -DPKGDIR=/src/build-windows/pkg/otd -DICON=/src/data/otd.ico \
+           -DOUTFILE=/src/dist/otd-$VERSION-setup.exe \
+           -DFILELIST=/src/build-windows/pkg/files.nsh -DDELLIST=/src/build-windows/pkg/delete.nsh \
+           windows/otd.nsi
 "
-ls -la dist/otd-$VERSION-windows-x64.zip
+ls -la dist/otd-$VERSION-windows-x64.zip dist/otd-$VERSION-setup.exe
