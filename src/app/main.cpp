@@ -18,7 +18,8 @@ int main(int argc, char* argv[])
     QCoreApplication::setApplicationName(QStringLiteral("otd"));
     QApplication::setApplicationDisplayName(QStringLiteral("otd"));
     QCoreApplication::setApplicationVersion(QStringLiteral(OTD_VERSION));
-    QApplication::setDesktopFileName(QStringLiteral("otd"));
+    // the installed desktop entry (otd, or eu.oh2gba.otd in the Flatpak)
+    QApplication::setDesktopFileName(QStringLiteral(OTD_DESKTOP_ID));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(

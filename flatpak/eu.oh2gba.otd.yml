@@ -10,7 +10,9 @@ finish-args:
   - --socket=fallback-x11
   - --socket=wayland
   - --device=dri
-  # Schedule downloads and the TCP connection to rigctld
+  # Sound output for the KiwiSDR player
+  - --socket=pulseaudio
+  # Schedule downloads, the TCP connection to rigctld and the KiwiSDR receivers
   - --share=network
   # Serial/USB access so rigctld started from the app can reach the radio
   - --device=all

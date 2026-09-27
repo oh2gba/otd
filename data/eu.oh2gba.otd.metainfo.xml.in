@@ -37,6 +37,9 @@
   <categories><category>HamRadio</category><category>Network</category></categories>
   <keywords><keyword>shortwave</keyword><keyword>SWL</keyword><keyword>rigctld</keyword><keyword>EiBi</keyword></keywords>
   <releases>
+    <release version="1.5.2" date="2026-09-27">
+      <description><p>The program announces the desktop entry it was installed with, so the icon shows in the Flatpak on Wayland; the Flatpak gets sound output for the KiwiSDR player.</p></description>
+    </release>
     <release version="1.5.1" date="2026-09-27">
       <description><p>The arrow keys tune again while no rig is followed; 1.5.0 shipped that feature broken.</p></description>
     </release>
