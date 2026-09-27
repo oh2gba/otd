@@ -55,7 +55,10 @@ jobs:
           tar xzf hamlib.tar.gz
           for arch in arm64 x86_64; do
             host=$([ "$arch" = arm64 ] && echo aarch64-apple-darwin || echo x86_64-apple-darwin)
-            rm -rf "hamlib-build-$arch" && cp -R "hamlib-$HV" "hamlib-build-$arch"
+            # a fresh extraction per architecture keeps the tarball's time stamps,
+            # so make does not try to regenerate configure (no autoconf on the runner)
+            rm -rf "hamlib-build-$arch" && mkdir "hamlib-build-$arch" \
+              && tar xzf hamlib.tar.gz -C "hamlib-build-$arch" --strip-components=1
             ( cd "hamlib-build-$arch" && \
               CFLAGS="-arch $arch -mmacosx-version-min=12.0" LDFLAGS="-arch $arch -mmacosx-version-min=12.0" \
               ./configure --host="$host" --prefix="$PWD/../hamlib-$arch" --disable-shared --enable-static \
