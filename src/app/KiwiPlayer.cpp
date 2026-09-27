@@ -10,12 +10,99 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMediaDevices>
+#include <QPainter>
 #include <QSlider>
 #include <QStyle>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 #include <cstring>
+
+// A plain S-meter: a bar from S0 to S9+60 with the reading written on it.
+// Green up to S9, red beyond, as on a radio. clear() blanks it.
+class SMeter : public QWidget
+{
+public:
+    explicit SMeter(QWidget* parent = nullptr)
+        : QWidget(parent)
+    {
+        setMinimumSize(150, 18);
+        setMaximumHeight(20);
+    }
+    void setDbm(double dBm)
+    {
+        m_dBm = dBm;
+        m_valid = true;
+        setToolTip(QStringLiteral("%1 dBm").arg(dBm, 0, 'f', 0));
+        update();
+    }
+    void clear()
+    {
+        m_valid = false;
+        setToolTip(QString());
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const QRectF r = rect().adjusted(0.5, 0.5, -0.5, -0.5);
+        p.setPen(palette().color(QPalette::Mid));
+        p.setBrush(palette().base());
+        p.drawRoundedRect(r, 3, 3);
+        if (!m_valid)
+            return;
+        // S0 = -127 dBm ... S9 = -73 dBm takes 60 % of the bar, +60 dB the rest
+        const double s9 = 0.6;
+        double frac;
+        if (m_dBm <= -73.0)
+            frac = s9 * qBound(0.0, (m_dBm + 127.0) / 54.0, 1.0);
+        else
+            frac = s9 + (1.0 - s9) * qBound(0.0, (m_dBm + 73.0) / 60.0, 1.0);
+        const QRectF inner = r.adjusted(1, 1, -1, -1);
+        QRectF fill = inner;
+        fill.setWidth(inner.width() * frac);
+        p.setPen(Qt::NoPen);
+        const double s9x = inner.left() + inner.width() * s9;
+        p.setBrush(QColor(0x3f, 0xb9, 0x50));
+        p.drawRect(QRectF(fill.left(), fill.top(), qMin(fill.right(), s9x) - fill.left(), fill.height()));
+        if (fill.right() > s9x)
+        {
+            p.setBrush(QColor(0xf8, 0x51, 0x49));
+            p.drawRect(QRectF(s9x, fill.top(), fill.right() - s9x, fill.height()));
+        }
+        // ticks at every S unit and every 20 dB above S9
+        p.setPen(QPen(palette().color(QPalette::Mid), 1));
+        for (int s = 1; s <= 9; ++s)
+        {
+            const double x = inner.left() + inner.width() * s9 * s / 9.0;
+            p.drawLine(QPointF(x, inner.bottom() - 3), QPointF(x, inner.bottom()));
+        }
+        for (int db = 20; db <= 60; db += 20)
+        {
+            const double x = s9x + inner.width() * (1.0 - s9) * db / 60.0;
+            p.drawLine(QPointF(x, inner.bottom() - 3), QPointF(x, inner.bottom()));
+        }
+        // the reading
+        QString text;
+        if (m_dBm >= -73.0)
+            text = QStringLiteral("S9+%1").arg(qRound((m_dBm + 73.0) / 10.0) * 10);
+        else
+            text = QStringLiteral("S%1").arg(qBound(0, qRound((m_dBm + 127.0) / 6.0), 9));
+        QFont f = font();
+        f.setBold(true);
+        f.setPointSizeF(f.pointSizeF() * 0.85);
+        p.setFont(f);
+        p.setPen(palette().color(QPalette::Text));
+        p.drawText(inner.adjusted(4, 0, -4, 0), Qt::AlignVCenter | Qt::AlignRight, text);
+    }
+
+private:
+    double m_dBm = -127.0;
+    bool m_valid = false;
+};
 
 // Audio arrives from the network in bursts; the sound card wants a steady
 // trickle. This queue sits between them: the sink pulls from it, gets
@@ -129,9 +216,7 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
             m_sink->setVolume(v / 100.0);
     });
 
-    m_meter = new QLabel;
-    m_meter->setMinimumWidth(70);
-    m_meter->setToolTip(tr("Signal strength reported by the receiver"));
+    m_meter = new SMeter;
     m_status = new QLabel;
     m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
@@ -146,9 +231,7 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
     connect(&m_client, &KiwiClient::stateChanged, this, &KiwiPlayer::setStatus);
     connect(&m_client, &KiwiClient::audio, this, &KiwiPlayer::onAudio);
     connect(&m_client, &KiwiClient::closed, this, &KiwiPlayer::onClosed);
-    connect(&m_client, &KiwiClient::sMeter, this, [this](double dBm) {
-        m_meter->setText(QStringLiteral("%1 dBm").arg(dBm, 0, 'f', 0));
-    });
+    connect(&m_client, &KiwiClient::sMeter, this, [this](double dBm) { m_meter->setDbm(dBm); });
 }
 
 KiwiPlayer::~KiwiPlayer()

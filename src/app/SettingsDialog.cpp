@@ -195,37 +195,39 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     auto* grid = new QGridLayout(dataBox);
     grid->setColumnStretch(2, 1);
     int row = 0;
-    auto addSource = [&](const QString& label, const QString& note, bool enabled, const QString& url,
-                         QCheckBox** box, QLineEdit** edit) {
+    // Each source: the switch, a line about it, and a link to the publisher's
+    // page. The download addresses themselves are built in and not editable.
+    auto addSource = [&](const QString& label, const QString& note, const QString& site,
+                         const QString& siteText, bool enabled, QCheckBox** box) {
         *box = new QCheckBox(label);
         (*box)->setChecked(enabled);
-        if (!note.isEmpty())
-            (*box)->setToolTip(note);
-        *edit = new QLineEdit(url);
-        (*edit)->setMinimumWidth(360);
-        (*edit)->setEnabled(enabled);
-        connect(*box, &QCheckBox::toggled, *edit, &QLineEdit::setEnabled);
         grid->addWidget(*box, row, 0);
-        grid->addWidget(*edit, row, 1, 1, 2);
+        auto* about = new QLabel(QStringLiteral("%1 &nbsp;<a href=\"%2\">%3</a>")
+                                     .arg(note.toHtmlEscaped(), site.toHtmlEscaped(), siteText.toHtmlEscaped()));
+        about->setOpenExternalLinks(true);
+        about->setTextInteractionFlags(Qt::TextBrowserInteraction);
+        grid->addWidget(about, row, 1, 1, 2);
         ++row;
     };
     auto* schedules = new QLabel(tr("Schedules"));
     schedules->setStyleSheet(QStringLiteral("font-weight: bold;"));
     grid->addWidget(schedules, row++, 0, 1, 3);
-    addSource(tr("EiBi"), tr("Eike Bierwirth's frequency list, free for third-party software"),
-              cur.eibiEnabled, cur.eibiUrl, &m_eibiOn, &m_eibiUrl);
-    addSource(tr("HFCC"), tr("Public data files of the HF Coordination Conference"),
-              cur.hfccEnabled, cur.hfccUrl, &m_hfccOn, &m_hfccUrl);
-    addSource(tr("Aoki"), tr("Bi Newsletter shortwave schedule (Nagoya DXers Circle)"),
-              cur.aokiEnabled, cur.aokiUrl, &m_aokiOn, &m_aokiUrl);
+    addSource(tr("EiBi"), tr("Eike Bierwirth's list."),
+              QStringLiteral("http://www.eibispace.de/"), QStringLiteral("eibispace.de"),
+              cur.eibiEnabled, &m_eibiOn);
+    addSource(tr("HFCC"), tr("HFCC public data."),
+              QStringLiteral("http://www.hfcc.org/data/"), QStringLiteral("hfcc.org"),
+              cur.hfccEnabled, &m_hfccOn);
+    addSource(tr("Aoki"), tr("Bi Newsletter, Nagoya DXers Circle."),
+              QStringLiteral("http://www1.s2.starcat.ne.jp/ndxc/"), QStringLiteral("ndxc"),
+              cur.aokiEnabled, &m_aokiOn);
     auto* tables = new QLabel(tr("Frequency allocation table"));
     tables->setStyleSheet(QStringLiteral("font-weight: bold;"));
     grid->addWidget(tables, row++, 0, 1, 3);
-    addSource(tr("Traficom (Finland)"),
-              tr("The Finnish national allocation table from Traficom's open data (CC BY 4.0).\n"
-                 "When on, the band indicator shows what each sub-band is used for in Finland,\n"
-                 "far finer than the built-in ITU band plan."),
-              cur.traficomEnabled, cur.traficomUrl, &m_traficomOn, &m_traficomUrl);
+    addSource(tr("Traficom"),
+              tr("Finland's detailed allocation table, replaces the built-in band plan."),
+              QStringLiteral("https://avoindata.suomi.fi/data/en_GB/dataset/taajuusjakotaulukko"),
+              QStringLiteral("avoindata.suomi.fi"), cur.traficomEnabled, &m_traficomOn);
     m_refreshDays = new QSpinBox;
     m_refreshDays->setRange(1, 90);
     m_refreshDays->setSuffix(tr(" days"));
@@ -237,15 +239,10 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     auto* programBox = new QGroupBox(tr("Program"));
     auto* programGrid = new QGridLayout(programBox);
     programGrid->setColumnStretch(1, 1);
-    m_updateOn = new QCheckBox(tr("Check for a new version once a day"));
+    m_updateOn = new QCheckBox(tr("Check otd.oh2gba.eu for a new version"));
     m_updateOn->setChecked(cur.updateCheck);
-    m_updateOn->setToolTip(tr("Asks the project page for the current version. The request contains "
-                              "only this program's version and platform; nothing else is sent or stored."));
-    m_updateUrl = new QLineEdit(cur.updateUrl);
-    m_updateUrl->setEnabled(cur.updateCheck);
-    connect(m_updateOn, &QCheckBox::toggled, m_updateUrl, &QLineEdit::setEnabled);
-    programGrid->addWidget(m_updateOn, 0, 0);
-    programGrid->addWidget(m_updateUrl, 0, 1);
+    m_updateOn->setToolTip(tr("Once a day; only the program's version and platform are sent."));
+    programGrid->addWidget(m_updateOn, 0, 0, 1, 2);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -259,11 +256,11 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     auto* viewTab = new QWidget;
     auto* viewLayout = new QVBoxLayout(viewTab);
     viewLayout->addWidget(viewBox);
-    viewLayout->addWidget(programBox);
     viewLayout->addStretch();
     auto* dataTab = new QWidget;
     auto* dataLayout = new QVBoxLayout(dataTab);
     dataLayout->addWidget(dataBox);
+    dataLayout->addWidget(programBox);
     dataLayout->addStretch();
     auto* tabs = new QTabWidget;
     tabs->addTab(rigTab, tr("Radio"));
@@ -326,15 +323,13 @@ AppSettings SettingsDialog::settings(const AppSettings& base) const
     s.toleranceKHz = m_tolerance->value();
     s.ituRegion = m_region->currentData().toInt();
     s.updateCheck = m_updateOn->isChecked();
-    s.updateUrl = m_updateUrl->text().trimmed();
+
     s.refreshDays = m_refreshDays->value();
-    s.eibiUrl = m_eibiUrl->text().trimmed();
-    s.hfccUrl = m_hfccUrl->text().trimmed();
-    s.aokiUrl = m_aokiUrl->text().trimmed();
+
     s.eibiEnabled = m_eibiOn->isChecked();
     s.hfccEnabled = m_hfccOn->isChecked();
     s.aokiEnabled = m_aokiOn->isChecked();
-    s.traficomUrl = m_traficomUrl->text().trimmed();
+
     s.traficomEnabled = m_traficomOn->isChecked();
     s.launchRigctld = m_launch->isChecked();
     s.rigctldPath = m_rigctldPath->text().trimmed();

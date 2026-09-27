@@ -68,10 +68,8 @@ How to hook up the radio: <https://otd.oh2gba.eu/rig.html>
 - Data is stored in a local SQLite database and refreshed at most once a week.
   Refresh requests use `If-Modified-Since`, so an unchanged file costs a single
   tiny 304 response.
-- Once a day the program asks the project page for the current version and shows a small
-  link above the clock when a newer one exists. The request carries only the program's
-  version and platform; the server counts these calls per day, version and platform and
-  keeps no addresses or other data. File → Settings switches the check off.
+- Once a day the program checks otd.oh2gba.eu for a new version and shows a small link
+  above the clock when one exists. File → Settings switches the check off.
 - Everything, including settings, window size and column layout, lives in one SQLite
   file. `--data-dir <dir>` puts it wherever you like (portable mode).
 

@@ -68,16 +68,11 @@ private:
     QDoubleSpinBox* m_tolerance;
     QComboBox* m_region;
     QCheckBox* m_updateOn;
-    QLineEdit* m_updateUrl;
     QSpinBox* m_refreshDays;
     QCheckBox* m_eibiOn;
     QCheckBox* m_hfccOn;
     QCheckBox* m_aokiOn;
     QCheckBox* m_traficomOn;
-    QLineEdit* m_traficomUrl;
-    QLineEdit* m_eibiUrl;
-    QLineEdit* m_hfccUrl;
-    QLineEdit* m_aokiUrl;
 
     QCheckBox* m_launch;
     QLineEdit* m_rigctldPath;

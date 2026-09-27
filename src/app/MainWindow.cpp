@@ -19,6 +19,7 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QEvent>
+#include <QHash>
 #include <QAbstractItemView>
 #include <QKeyEvent>
 #include <QAbstractSpinBox>
@@ -136,8 +137,10 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
 
     restoreGeometry(QByteArray::fromBase64(
         m_db->meta(QStringLiteral("window.geometry")).toLatin1()));
-    m_table->horizontalHeader()->restoreState(QByteArray::fromBase64(
-        m_db->meta(QStringLiteral("window.columns")).toLatin1()));
+    const QByteArray savedColumns = QByteArray::fromBase64(
+        m_db->meta(QStringLiteral("window.columns")).toLatin1());
+    if (!savedColumns.isEmpty() && m_table->horizontalHeader()->restoreState(savedColumns))
+        m_columnsFitted = true;   // the user's layout is back; no automatic fit
     // The saved state also carries resize modes; a state written by an
     // older build had the Station column locked to "stretch". Re-assert
     // that the user may drag every column.
@@ -145,6 +148,15 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
     m_table->horizontalHeader()->setStretchLastSection(false);
     // the saved state may also carry a sort indicator and clickable sections
     m_table->horizontalHeader()->setSortIndicatorShown(false);
+    // widths are saved shortly after a drag, so a crash or kill loses nothing
+    m_saveColumnsTimer = new QTimer(this);
+    m_saveColumnsTimer->setSingleShot(true);
+    m_saveColumnsTimer->setInterval(1500);
+    connect(m_saveColumnsTimer, &QTimer::timeout, this, &MainWindow::saveColumns);
+    connect(m_table->horizontalHeader(), &QHeaderView::sectionResized, this, [this]() {
+        if (m_columnsFitted && isVisible())
+            m_saveColumnsTimer->start();
+    });
     // right-click on the header: choose the columns
     m_table->horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_table->horizontalHeader(), &QWidget::customContextMenuRequested,
@@ -444,6 +456,15 @@ void MainWindow::buildUi()
     m_table->setSortingEnabled(false);               // the model order is the dial
     m_table->horizontalHeader()->setSectionsClickable(false);
     m_table->horizontalHeader()->setSortIndicatorShown(false);
+    // widths are saved shortly after a drag, so a crash or kill loses nothing
+    m_saveColumnsTimer = new QTimer(this);
+    m_saveColumnsTimer->setSingleShot(true);
+    m_saveColumnsTimer->setInterval(1500);
+    connect(m_saveColumnsTimer, &QTimer::timeout, this, &MainWindow::saveColumns);
+    connect(m_table->horizontalHeader(), &QHeaderView::sectionResized, this, [this]() {
+        if (m_columnsFitted && isVisible())
+            m_saveColumnsTimer->start();
+    });
     // right-click on the header: choose the columns
     m_table->horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_table->horizontalHeader(), &QWidget::customContextMenuRequested,
@@ -628,7 +649,7 @@ void MainWindow::updateHeader()
     QString tip = tr("Allocation of the tuned frequency (ITU region set in Settings)");
     if (m_settings.traficomEnabled && m_centreKHz > 0.0)
     {
-        // the national table first, then the informal uses of the built-in plan
+        // the national table replaces the built-in plan wherever it has a row
         const QList<StationDb::Allocation> rows = m_db->allocationsAt(m_centreKHz);
         if (!rows.isEmpty())
         {
@@ -641,9 +662,6 @@ void MainWindow::updateHeader()
                 if (!names.contains(n))
                     names << n;
             }
-            for (const BandPlan::Band& b : bands)
-                if (b.kind == QLatin1String("informal"))
-                    names << b.name;
             if (names.size() > 3)
             {
                 const int more = names.size() - 3;
@@ -712,28 +730,7 @@ void MainWindow::setCentreKHz(double kHz, bool fromRig)
 
 void MainWindow::refreshLookup()
 {
-    QString text = m_filter->text().trimmed();
-    // a number in the search box is a frequency: go there instead of searching
-    bool numeric = false;
-    const double typedKHz = QString(text).replace(QLatin1Char(','), QLatin1Char('.')).toDouble(&numeric);
-    if (numeric && typedKHz > 0.0)
-    {
-        text.clear();
-        if (!qFuzzyCompare(typedKHz + 1.0, m_centreKHz + 1.0))
-        {
-            if (m_followRig->isChecked())
-            {
-                const QSignalBlocker b(m_followRig);
-                m_followRig->setChecked(false);   // manual from here on
-                m_settings.followRig = false;
-                m_freqEdit->setReadOnly(false);
-            }
-            m_centreKHz = typedKHz;
-            m_freqEdit->setText(QString::number(typedKHz, 'f', 3));
-            updateHeader();
-        }
-    }
-
+    const QString text = m_filter->text().trimmed();
     StationList list;
     const bool dial = text.isEmpty() && m_centreKHz > 0.0;
     m_dialActive = dial;
@@ -1050,8 +1047,11 @@ void MainWindow::updatePlayer()
 {
     if (m_centreKHz <= 0.0)
         return;
-    const QString mode = (m_rigConnected && m_followRig->isChecked()) ? m_rigMode : QStringLiteral("AM");
-    m_player->tune(m_centreKHz, mode);
+    // the online receiver follows the rig when there is one, never a
+    // frequency merely typed for a look
+    const bool rig = m_rigConnected && m_followRig->isChecked() && m_rigHz > 0;
+    const QString mode = rig ? m_rigMode : QStringLiteral("AM");
+    m_player->tune(rig ? m_rigHz / 1000.0 : m_centreKHz, mode);
 }
 
 void MainWindow::onRigState(bool connected, const QString& message)
@@ -1381,15 +1381,28 @@ void MainWindow::fitColumns()
         return;
     m_columnsFitted = true;
     QHeaderView* h = m_table->horizontalHeader();
-    const int em = m_table->fontMetrics().horizontalAdvance(QLatin1Char('M'));
+    const QFontMetrics fm = m_table->fontMetrics();
+    const int em = fm.horizontalAdvance(QLatin1Char('M'));
+    const int pad = em * 2;
+    // the narrow format columns are sized for their widest possible value,
+    // so that "▼ 999.9" or "12345.678" never get clipped when the rows change
+    const QHash<int, int> least = {
+        {StationModel::ColDelta,     fm.horizontalAdvance(QStringLiteral("\u25BC 999.9")) + pad},
+        {StationModel::ColFrequency, fm.horizontalAdvance(QStringLiteral("12345.678")) + pad},
+        {StationModel::ColStatus,    fm.horizontalAdvance(tr("inactive")) + pad},
+        {StationModel::ColMode,      fm.horizontalAdvance(QStringLiteral("HFDL")) + pad},
+        {StationModel::ColTime,      fm.horizontalAdvance(QStringLiteral("0000-2400")) + pad},
+        {StationModel::ColDays,      fm.horizontalAdvance(QStringLiteral("Mo-Fr")) + pad},
+    };
     for (int c = 0; c < StationModel::ColumnCount; ++c)
     {
         if (h->isSectionHidden(c))
             continue;
         m_table->resizeColumnToContents(c);
-        h->resizeSection(c, qBound(em * 4, h->sectionSize(c), em * 28));
+        h->resizeSection(c, qBound(qMax(em * 4, least.value(c, 0)), h->sectionSize(c), em * 28));
     }
     scaleColumns(m_table->viewport()->width());
+    saveColumns();
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)

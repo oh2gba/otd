@@ -37,6 +37,17 @@
   <categories><category>HamRadio</category><category>Network</category></categories>
   <keywords><keyword>shortwave</keyword><keyword>SWL</keyword><keyword>rigctld</keyword><keyword>EiBi</keyword></keywords>
   <releases>
+    <release version="1.5.4" date="2026-09-27">
+      <description>
+        <ul>
+          <li>Column widths are remembered across starts and saved right after a change; the delta column has room for its widest value</li>
+          <li>The search box is a plain search again: numbers match the frequency, nothing moves the dial</li>
+          <li>Typing a frequency while following the rig no longer switches to manual mode</li>
+          <li>KiwiSDR player: an S-meter bar instead of a dBm figure</li>
+          <li>Settings: sources shown with their web pages instead of editable addresses; the version check moved to the Data tab; Traficom replaces the built-in band plan when on</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.3" date="2026-09-27">
       <description>
         <ul>

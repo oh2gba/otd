@@ -54,6 +54,8 @@ private slots:
         QCOMPARE(db.search("!buzz").size(), 3);                     // exclusion
         QCOMPARE(db.search("RUS !buzz !meteo").size(), 2);
         QCOMPARE(db.search("!").size(), 0);
+        QCOMPARE(db.search("4625").size(), 1);                      // the frequency counts as text
+        QCOMPARE(db.search("462").size(), 2);                       // 4625 and 4624
         QCOMPARE(db.search("  ").size(), 0);
         QCOMPARE(db.sourceCounts().size(), 1);
         QCOMPARE(db.sourceCounts().first().second, 4);

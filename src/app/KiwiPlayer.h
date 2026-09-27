@@ -7,6 +7,7 @@
 #include <QWidget>
 
 class PcmQueue;
+class SMeter;
 class QAudioSink;
 class QComboBox;
 class QIODevice;
@@ -55,7 +56,7 @@ private:
     QComboBox* m_receiver = nullptr;
     QToolButton* m_play = nullptr;
     QSlider* m_volume = nullptr;
-    QLabel* m_meter = nullptr;
+    SMeter* m_meter = nullptr;
     QLabel* m_status = nullptr;
     QAudioSink* m_sink = nullptr;
     PcmQueue* m_queue = nullptr;
