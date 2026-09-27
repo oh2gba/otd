@@ -12,12 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-sync1 \
         libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libx11-xcb1 libwayland-client0 \
         libwayland-cursor0 libwayland-egl1 libsm6 libice6 libxrender1 libpulse0 \
+        libxrandr2 libxv1 libxext6 libva2 libva-drm2 libva-x11-2 libvdpau1 \
     && rm -rf /var/lib/apt/lists/*
 
 ARG QT_VERSION=6.8.3
 RUN pip3 install --no-cache-dir aqtinstall \
     && aqt install-qt --outputdir /opt/qt linux desktop ${QT_VERSION} linux_gcc_64 \
-         -m qtwebsockets qtmultimedia --archives qtbase qtwayland qtsvg icu qtwebsockets qtmultimedia \
+         -m qtwebsockets qtmultimedia --archives qtbase qtwayland qtsvg icu qtdeclarative qtwebsockets qtmultimedia \
     && rm -rf /root/.cache
 
 RUN mkdir -p /opt/linuxdeploy && cd /opt/linuxdeploy \
