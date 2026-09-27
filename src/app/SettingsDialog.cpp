@@ -5,6 +5,8 @@
 #include <QDialogButtonBox>
 #include <QLabel>
 #include <QDoubleSpinBox>
+#include <QCoreApplication>
+#include <QDir>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -280,14 +282,21 @@ void SettingsDialog::reloadModels()
     {
         m_model->addItem(tr("%1  (rigctld not found, keeping model number)").arg(m_currentModel),
                          m_currentModel);
-        m_launchNote->setText(tr("Could not run rigctld: %1. Install Hamlib or point to the "
-                                 "program above.").arg(error));
+        // the packages bring rigctld along; a build from source uses the
+        // distribution's Hamlib, which has to be there
+        m_launchNote->setText(tr("rigctld not found (%1). The downloads include it; a build from "
+                                 "source needs Hamlib installed, so that rigctld is on the PATH.")
+                                 .arg(error));
     }
     else
     {
-        m_launchNote->setText(tr("%1 rig models known to this rigctld. Pick your radio, the port "
-                                 "it is connected to and, if needed, the baud rate set in the radio's menu.")
-                                 .arg(models.size()));
+        const QString path = RigctldLauncher::defaultPath();
+        const bool bundled = path.startsWith(QCoreApplication::applicationDirPath());
+        m_launchNote->setText(tr("%1 rig models known to %2 (%3). Pick your radio, the port it is "
+                                 "connected to and, if needed, the baud rate set in the radio's menu.")
+                                 .arg(models.size())
+                                 .arg(bundled ? tr("the included rigctld") : tr("the system's rigctld"),
+                                      QDir::toNativeSeparators(path)));
         if (selected < 0)
             selected = m_model->findData(1);
     }

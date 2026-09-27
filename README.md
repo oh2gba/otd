@@ -99,14 +99,16 @@ Ready-made packages, both produced in Docker as well:
 
 ```bash
 ./package-linux.sh      # dist/otd-<version>-x86_64.AppImage (Ubuntu 22.04 base, Qt 6.8)
-./package-windows.sh    # dist/otd-<version>-windows-x64.zip (MinGW cross build, bundles rigctld)
+./package-windows.sh    # dist/otd-<version>-windows-x64.zip and otd-<version>-setup.exe (MinGW cross build)
 ```
 
-The Windows zip ships Hamlib's `rigctld` (LGPL) so users need nothing else;
-the AppImage expects `rigctld` from the distribution's Hamlib package.
+Every package ships Hamlib's `rigctld` (LGPL) next to the program, so users need
+nothing else. A build from source does not: it uses the `rigctld` on the PATH,
+i.e. the distribution's Hamlib package (`libhamlib-utils` on Debian and Ubuntu,
+`hamlib` elsewhere), and says so under *File → Settings → Radio* when it is missing.
 
 Without Docker you need CMake ≥ 3.21, Ninja and Qt 6 (Widgets, Network, Sql,
-Test) and can build the usual way:
+WebSockets, Multimedia, Test) and can build the usual way:
 
 ```bash
 cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build
