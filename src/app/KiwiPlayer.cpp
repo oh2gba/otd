@@ -4,13 +4,17 @@
 #include <QAudioFormat>
 #include <QAudioSink>
 #include <QComboBox>
-#include <QCompleter>
+#include <QInputDialog>
 #include <QHBoxLayout>
 #include <QIODevice>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMediaDevices>
 #include <QPainter>
+#include <cmath>
+#include <QIcon>
+#include <QPixmap>
+#include <QPolygonF>
 #include <QSlider>
 #include <QStyle>
 #include <QToolButton>
@@ -171,34 +175,83 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
 
     auto* caption = new QLabel(tr("Listen on KiwiSDR:"));
     caption->setToolTip(tr("Hear the tuned frequency through a public KiwiSDR receiver on the internet.\n"
-                           "The list comes from the public KiwiSDR directory; you can also paste an "
-                           "address of your own, e.g. http://example.ddns.net:8073"));
+                           "The list comes from the public KiwiSDR directory, sorted by place; "
+                           "type the first letters of a place to jump there."));
+    // a plain list: nothing to type into, picking an entry starts it
     m_receiver = new QComboBox;
-    m_receiver->setEditable(true);
-    m_receiver->setInsertPolicy(QComboBox::NoInsert);
+    m_receiver->setEditable(false);
     m_receiver->setMinimumWidth(260);
-    m_receiver->lineEdit()->setPlaceholderText(tr("type a place or name, or paste http://receiver:8073"));
+    m_receiver->setMaxVisibleItems(25);
     m_receiver->setToolTip(caption->toolTip());
-    // typing filters the list: "finland", "loop", a call sign ...
-    auto* completer = new QCompleter(m_receiver->model(), m_receiver);
-    completer->setCaseSensitivity(Qt::CaseInsensitive);
-    completer->setFilterMode(Qt::MatchContains);
-    completer->setCompletionMode(QCompleter::PopupCompletion);
-    completer->setMaxVisibleItems(15);
-    m_receiver->setCompleter(completer);
     connect(m_receiver, &QComboBox::activated, this, [this](int index) {
         const QString url = m_receiver->itemData(index).toString();
         if (url.isEmpty())
             return;
         m_current = url;
+        updateStar();
         // picking a receiver means: listen to it
         if (isPlaying())
             stop();
         togglePlay();
     });
-    connect(m_receiver->lineEdit(), &QLineEdit::returnPressed, this, [this]() {
-        if (!isPlaying())
-            togglePlay();
+
+    // a search box narrows the list to the entries containing the text:
+    // "netherlands", "loop", a call sign; the list itself stays a list
+    m_search = new QLineEdit;
+    m_search->setPlaceholderText(tr("search receivers"));
+    m_search->setClearButtonEnabled(true);
+    m_search->setMaximumWidth(180);
+    m_search->setToolTip(tr("Show only the receivers whose place or name contains this text"));
+    connect(m_search, &QLineEdit::textChanged, this, [this](const QString&) { rebuildList(); });
+
+    // the demodulation mode: the rig's while a rig is followed (greyed),
+    // otherwise the listener's own choice
+    m_modeBox = new QComboBox;
+    m_modeBox->addItems({QStringLiteral("AM"), QStringLiteral("USB"), QStringLiteral("LSB"),
+                         QStringLiteral("CW"), QStringLiteral("NFM")});
+    m_modeBox->setToolTip(tr("Mode the receiver demodulates; follows the rig when one is connected"));
+    connect(m_modeBox, &QComboBox::activated, this, [this](int) {
+        if (m_rigDriven)
+            return;
+        m_mode = m_modeBox->currentText();
+        m_client.tune(m_kHz, m_mode);
+        emit manualModeChanged(m_mode);
+    });
+
+    // the star marks a favourite: starred receivers lead the list
+    m_star = new QToolButton;   // a plain button like + and play, quiet grey star
+    connect(m_star, &QToolButton::clicked, this, [this]() {
+        const QString cur = currentReceiver();
+        if (cur.isEmpty())
+            return;
+        if (m_favourites.contains(cur))
+            m_favourites.removeAll(cur);
+        else
+            m_favourites.prepend(cur);
+        m_current = cur;
+        rebuildList();
+        emit receiversChanged();
+    });
+
+    // own addresses go in through a small dialog, not the list itself
+    m_add = new QToolButton;
+    m_add->setText(QStringLiteral("+"));
+    m_add->setToolTip(tr("Add a receiver of your own by its address, e.g. http://example.ddns.net:8073"));
+    connect(m_add, &QToolButton::clicked, this, [this]() {
+        bool ok = false;
+        const QString text = QInputDialog::getText(this, tr("Add a KiwiSDR receiver"),
+                                                   tr("Address of the receiver (http://host:port):"),
+                                                   QLineEdit::Normal, QStringLiteral("http://"), &ok).trimmed();
+        if (!ok || text.isEmpty() || !text.contains(QLatin1Char('.')))
+            return;
+        m_current = text;
+        if (!m_custom.contains(text))
+            m_custom.prepend(text);
+        rebuildList();
+        emit receiversChanged();
+        if (isPlaying())
+            stop();
+        togglePlay();
     });
 
     m_play = new QToolButton;
@@ -217,16 +270,16 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
     });
 
     m_meter = new SMeter;
-    m_status = new QLabel;
-    m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
     layout->addWidget(caption);
+    layout->addWidget(m_search);
     layout->addWidget(m_receiver, 1);
+    layout->addWidget(m_star);
+    layout->addWidget(m_add);
     layout->addWidget(m_play);
+    layout->addWidget(m_modeBox);
     layout->addWidget(m_volume);
     layout->addWidget(m_meter);
-    m_status->setIndent(4);
-    rows->addWidget(m_status);
 
     connect(&m_client, &KiwiClient::stateChanged, this, &KiwiPlayer::setStatus);
     connect(&m_client, &KiwiClient::audio, this, &KiwiPlayer::onAudio);
@@ -264,11 +317,43 @@ QStringList KiwiPlayer::receivers() const
     return m_custom;
 }
 
-void KiwiPlayer::setReceivers(const QStringList& custom, const QString& current)
+void KiwiPlayer::setReceivers(const QStringList& custom, const QStringList& favourites, const QString& current)
 {
     m_custom = custom;
+    m_favourites = favourites;
     m_current = current;
     rebuildList();
+}
+
+// A five-pointed star: filled amber when marked, a grey outline otherwise.
+QIcon KiwiPlayer::starIcon(bool on)
+{
+    QPixmap pm(16, 16);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    QPolygonF star;
+    for (int i = 0; i < 10; ++i)
+    {
+        const double a = -M_PI / 2 + i * M_PI / 5;
+        const double r = (i % 2 == 0) ? 7.0 : 3.0;
+        star << QPointF(8 + r * std::cos(a), 8.5 + r * std::sin(a));
+    }
+    // grey either way: filled when starred, an outline when not
+    const QColor grey(0x8a, 0x94, 0x9d);
+    p.setPen(QPen(grey, 1.2));
+    p.setBrush(on ? QBrush(grey) : Qt::NoBrush);
+    p.drawPolygon(star);
+    return QIcon(pm);
+}
+
+void KiwiPlayer::updateStar()
+{
+    const QString cur = currentReceiver();
+    const bool on = !cur.isEmpty() && m_favourites.contains(cur);
+    m_star->setIcon(starIcon(on));
+    m_star->setEnabled(!cur.isEmpty());
+    m_star->setToolTip(on ? tr("Remove the star from this receiver") : tr("Star this receiver: it stays at the top of the list"));
 }
 
 void KiwiPlayer::setDirectory(const QList<KiwiDirectory::Receiver>& list)
@@ -289,16 +374,53 @@ void KiwiPlayer::rebuildList()
 {
     const QSignalBlocker block(m_receiver);
     m_receiver->clear();
-    for (const QString& url : m_custom)
-        m_receiver->addItem(url, url);
-    if (!m_custom.isEmpty() && !m_directory.isEmpty())
+    const QString needle = m_search ? m_search->text().trimmed() : QString();
+    auto matches = [&](const QString& a, const QString& b, const QString& c) {
+        return needle.isEmpty() || a.contains(needle, Qt::CaseInsensitive)
+               || b.contains(needle, Qt::CaseInsensitive) || c.contains(needle, Qt::CaseInsensitive);
+    };
+    auto labelOf = [&](const QString& url) {
+        for (const KiwiDirectory::Receiver& r : m_directory)
+            if (r.url == url)
+                return labelFor(r);
+        return url;
+    };
+    // starred receivers first
+    int shown = 0;
+    for (const QString& url : m_favourites)
+    {
+        const QString label = labelOf(url);
+        if (!matches(label, url, QString()))
+            continue;
+        m_receiver->addItem(starIcon(true), label, url);
+        ++shown;
+    }
+    if (shown > 0)
         m_receiver->insertSeparator(m_receiver->count());
+    // then the user's own addresses
+    int own = 0;
+    for (const QString& url : m_custom)
+    {
+        if (m_favourites.contains(url) || !matches(url, QString(), QString()))
+            continue;
+        m_receiver->addItem(starIcon(false), url, url);
+        ++own;
+        ++shown;
+    }
+    if (own > 0 && !m_directory.isEmpty())
+        m_receiver->insertSeparator(m_receiver->count());
+    // then the public directory
     for (const KiwiDirectory::Receiver& r : m_directory)
     {
-        if (r.offline)
+        if (r.offline || m_favourites.contains(r.url))
             continue;
-        m_receiver->addItem(labelFor(r), r.url);
+        if (!matches(r.location, r.name, r.url))
+            continue;
+        m_receiver->addItem(starIcon(false), labelFor(r), r.url);
+        ++shown;
     }
+    if (!needle.isEmpty() && shown == 0)
+        m_receiver->addItem(tr("(no receiver matches \"%1\")").arg(needle), QString());
     // show the current choice by its label when it is in the list
     int idx = -1;
     for (int i = 0; i < m_receiver->count() && idx < 0; ++i)
@@ -306,20 +428,16 @@ void KiwiPlayer::rebuildList()
             idx = i;
     if (idx >= 0)
         m_receiver->setCurrentIndex(idx);
-    else
-        m_receiver->setCurrentText(m_current);
+    else if (m_receiver->count() > 0)
+        m_receiver->setCurrentIndex(0);
+    updateStar();
 }
 
 QString KiwiPlayer::currentReceiver() const
 {
-    // a picked entry carries its address; typed text is used as is when
-    // it looks like one
     const int idx = m_receiver->currentIndex();
-    const QString typed = m_receiver->currentText().trimmed();
-    if (idx >= 0 && m_receiver->itemText(idx) == typed)
+    if (idx >= 0 && !m_receiver->itemData(idx).toString().isEmpty())
         return m_receiver->itemData(idx).toString();
-    if (typed.contains(QLatin1Char('.')) && !typed.contains(QLatin1Char(' ')))
-        return typed;
     return m_current;
 }
 
@@ -362,7 +480,7 @@ void KiwiPlayer::togglePlay()
     const QString cur = currentReceiver();
     if (cur.isEmpty())
     {
-        setStatus(tr("Paste a receiver address first (see kiwisdr.com/public)"));
+        setStatus(tr("Pick a receiver from the list, or add one with +"));
         return;
     }
     rememberCurrent();
@@ -386,11 +504,39 @@ void KiwiPlayer::stop()
     setStatus(QString());
 }
 
-void KiwiPlayer::tune(double kHz, const QString& mode)
+void KiwiPlayer::tune(double kHz, const QString& rigMode)
 {
     m_kHz = kHz;
-    m_mode = mode;
-    m_client.tune(kHz, mode);
+    m_rigDriven = !rigMode.isEmpty();
+    m_modeBox->setEnabled(!m_rigDriven);
+    if (m_rigDriven)
+    {
+        // show the rig's mode in the box too, mapped onto what the receiver has
+        const QString up = rigMode.toUpper();
+        const QString shown = up.startsWith(QLatin1String("USB")) ? QStringLiteral("USB")
+                            : up.startsWith(QLatin1String("LSB")) ? QStringLiteral("LSB")
+                            : up.startsWith(QLatin1String("CW"))  ? QStringLiteral("CW")
+                            : up.contains(QLatin1String("FM"))    ? QStringLiteral("NFM")
+                                                                   : QStringLiteral("AM");
+        const QSignalBlocker b(m_modeBox);
+        m_modeBox->setCurrentText(shown);
+        m_mode = shown;
+    }
+    else
+        m_mode = m_modeBox->currentText();
+    m_client.tune(kHz, m_mode);
+}
+
+QString KiwiPlayer::manualMode() const
+{
+    return m_modeBox->currentText();
+}
+
+void KiwiPlayer::setManualMode(const QString& mode)
+{
+    const QSignalBlocker b(m_modeBox);
+    if (m_modeBox->findText(mode) >= 0)
+        m_modeBox->setCurrentText(mode);
 }
 
 void KiwiPlayer::onAudio(const QByteArray& pcm)
@@ -450,5 +596,7 @@ void KiwiPlayer::onClosed(const QString& reason)
 
 void KiwiPlayer::setStatus(const QString& text)
 {
-    m_status->setText(text);
+    // shown by the main window in its status bar
+    m_statusText = text;
+    emit statusChanged(text);
 }

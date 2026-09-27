@@ -46,6 +46,9 @@ struct AppSettings
     bool showPlayer = true;
     double scaleSpanKHz = 100.0;   // width of the dial scale
     QStringList kiwiReceivers;
+    QStringList kiwiFavourites;
+    QString kiwiMode = QStringLiteral("AM");   // mode when no rig is followed
+    double manualKHz = 6070.0;                 // last frequency set by hand; 49 m as a start
     QString kiwiCurrent;
     int kiwiVolume = 70;
 

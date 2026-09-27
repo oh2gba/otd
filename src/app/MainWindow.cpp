@@ -19,6 +19,9 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QEvent>
+#include <cmath>
+#include <QWheelEvent>
+#include <QPainter>
 #include <QHash>
 #include <QAbstractItemView>
 #include <QKeyEvent>
@@ -179,6 +182,9 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
     m_table->viewport()->installEventFilter(this);
     // arrow keys tune in manual mode, wherever the focus is
     qApp->installEventFilter(this);
+    // and the wheel over a digit of the big frequency turns that digit
+    m_freqLabel->installEventFilter(this);
+    m_freqLabel->setToolTip(tr("Without a rig: turn the mouse wheel over a digit to change it"));
 
     if (startKHz > 0.0)
     {
@@ -189,6 +195,12 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
         m_freqEdit->setReadOnly(false);
         m_freqEdit->setText(QString::number(startKHz, 'f', 3));
         setCentreKHz(startKHz, false);
+    }
+    else if (!m_followRig->isChecked())
+    {
+        // no rig wanted: start where the listener left off (49 m at first)
+        m_freqEdit->setText(QString::number(m_settings.manualKHz, 'f', 3));
+        setCentreKHz(m_settings.manualKHz, false);
     }
 
     updateDbStatus();
@@ -220,6 +232,18 @@ void MainWindow::startUpdateCheck()
 
 void MainWindow::showUpdateResult(const UpdateCheck::Result& r)
 {
+    if (m_manualUpdateCheck)
+    {
+        // asked for by hand: say what came back, also when there is nothing new
+        m_manualUpdateCheck = false;
+        if (!r.valid)
+            statusBar()->showMessage(tr("Could not reach otd.oh2gba.eu for the version check"), 10000);
+        else if (r.newer)
+            statusBar()->showMessage(tr("Version %1 is available, see the link above the clock").arg(r.latest), 15000);
+        else
+            statusBar()->showMessage(tr("You have the current version, %1")
+                                         .arg(QCoreApplication::applicationVersion()), 10000);
+    }
     if (!r.valid)
     {
         m_updateLabel->hide();
@@ -276,7 +300,7 @@ void MainWindow::applyLauncher()
 
 void MainWindow::buildUi()
 {
-    setWindowTitle(QStringLiteral("otd"));
+    setWindowTitle(QStringLiteral("On The Dial"));
     // PNG sizes first: they need no SVG plugin, so the icon shows on every
     // platform; the SVG covers any other size
     QIcon icon;
@@ -297,6 +321,7 @@ void MainWindow::buildUi()
             return;
         }
         statusBar()->showMessage(tr("Checking for a new version ..."), 5000);
+        m_manualUpdateCheck = true;   // this time the answer is spoken out
         startUpdateCheck();
     });
     file->addAction(tr("&Settings..."), this, &MainWindow::openSettings);
@@ -507,8 +532,13 @@ void MainWindow::buildUi()
     connect(m_kiwiDirectory, &KiwiDirectory::failed, this, [this](const QString& why) {
         statusBar()->showMessage(tr("KiwiSDR directory not available: %1").arg(why), 8000);
     });
+    connect(m_player, &KiwiPlayer::manualModeChanged, this, [this](const QString& mode) {
+        m_settings.kiwiMode = mode;
+        m_settings.save(m_db);
+    });
     connect(m_player, &KiwiPlayer::receiversChanged, this, [this]() {
         m_settings.kiwiReceivers = m_player->receivers();
+        m_settings.kiwiFavourites = m_player->favourites();
         m_settings.kiwiCurrent = m_player->currentReceiver();
         m_settings.save(m_db);
     });
@@ -523,9 +553,33 @@ void MainWindow::buildUi()
     setCentralWidget(central);
 
     // --- status bar ---------------------------------------------------
-    m_rigStatus = new QLabel;
+    m_rigText = new QLabel;   // only speaks up when the rig is not there
+    // A watchdog on the rig's answers: every frequency reading restarts it;
+    // when none has arrived for a while (rigctld away, or up but without
+    // its radio), one steady line says so. Nothing is shown otherwise.
+    m_rigAwayTimer = new QTimer(this);
+    m_rigAwayTimer->setSingleShot(true);
+    connect(m_rigAwayTimer, &QTimer::timeout, this, [this]() {
+        if (!m_followRig->isChecked())
+            return;
+        m_rigText->setText(tr("Rig not answering (%1:%2)").arg(m_settings.rigHost).arg(m_settings.rigPort));
+        if (m_centreKHz <= 0.0)
+        {
+            // nothing has ever come from a rig: show the remembered frequency
+            // so a listener without a radio is not left with an empty dial
+            m_centreKHz = m_settings.manualKHz;
+            m_freqEdit->setText(QString::number(m_centreKHz, 'f', 3));
+            updateHeader();
+            refreshLookup();
+        }
+    });
+    m_sdrStatus = new QLabel;
+    connect(m_player, &KiwiPlayer::statusChanged, this, [this](const QString& text) {
+        m_sdrStatus->setText(text.isEmpty() ? QString() : tr("KiwiSDR: %1").arg(text));
+    });
     m_dbStatus = new QLabel;
-    statusBar()->addWidget(m_rigStatus, 1);
+    statusBar()->addWidget(m_rigText);
+    statusBar()->addWidget(m_sdrStatus, 1);
     statusBar()->addPermanentWidget(m_dbStatus);
 
     resize(1400, 760);
@@ -611,7 +665,8 @@ void MainWindow::applySettings()
         m_playerAction->setChecked(m_settings.showPlayer);
     }
     m_player->setVisible(m_settings.showPlayer);
-    m_player->setReceivers(m_settings.kiwiReceivers, m_settings.kiwiCurrent);
+    m_player->setReceivers(m_settings.kiwiReceivers, m_settings.kiwiFavourites, m_settings.kiwiCurrent);
+    m_player->setManualMode(m_settings.kiwiMode);
     m_player->setVolume(m_settings.kiwiVolume);
     if (m_settings.showPlayer)
         m_kiwiDirectory->refresh();
@@ -723,6 +778,11 @@ void MainWindow::setCentreKHz(double kHz, bool fromRig)
     if (fromRig && !m_followRig->isChecked())
         return;
     m_centreKHz = kHz;
+    if (!fromRig && kHz > 0.0 && !qFuzzyCompare(kHz + 1.0, m_settings.manualKHz + 1.0))
+    {
+        m_settings.manualKHz = kHz;   // remembered for the next start without a rig
+        m_settings.save(m_db);
+    }
     if (fromRig)
     {
         const QSignalBlocker b(m_freqEdit);
@@ -822,11 +882,13 @@ void MainWindow::tuneTo(double kHz, const QString& mode, qint64 flashId)
             QTimer::singleShot(350, this, [this]() { m_model->setFlash(0); });
         }
         // Send it to the radio and let the display follow the rig's answer.
-        m_rig->setFrequency(qRound64(kHz * 1000.0));
+        // Mode first: many rigs shift the dial when the mode changes (a CW or
+        // SSB offset), so a frequency set before the mode would land off.
         static const QStringList rigModes = {QStringLiteral("AM"), QStringLiteral("USB"),
                                              QStringLiteral("LSB"), QStringLiteral("CW")};
         if (rigModes.contains(mode))
             m_rig->setMode(mode);
+        m_rig->setFrequency(qRound64(kHz * 1000.0));
         if (!m_followRig->isChecked())
             m_followRig->setChecked(true);
         statusBar()->showMessage(tr("Tuning rig to %1 kHz %2").arg(kHz, 0, 'f', 3).arg(mode), 5000);
@@ -1005,7 +1067,8 @@ void MainWindow::updateDbStatus()
     QString tip;
     for (ScheduleSource* src : m_updater->sources())
     {
-        if (!src->isEnabled())
+        // the status bar counts stations; the allocation table is not one
+        if (!src->isEnabled() || src->id() == QLatin1String("traficom"))
             continue;
         const int n = src->count();
         if (n == 0)
@@ -1037,6 +1100,8 @@ void MainWindow::updateDbStatus()
 void MainWindow::onRigFrequency(qint64 hz)
 {
     m_rigHz = hz;
+    m_rigText->clear();   // the rig is really there
+    m_rigAwayTimer->start(qMax(5000, 3 * m_settings.pollIntervalMs));
     setCentreKHz(hz / 1000.0, true);
 }
 
@@ -1056,15 +1121,23 @@ void MainWindow::updatePlayer()
     // the online receiver follows the rig when there is one, never a
     // frequency merely typed for a look
     const bool rig = m_rigConnected && m_followRig->isChecked() && m_rigHz > 0;
-    const QString mode = rig ? m_rigMode : QStringLiteral("AM");
-    m_player->tune(rig ? m_rigHz / 1000.0 : m_centreKHz, mode);
+    m_player->tune(rig ? m_rigHz / 1000.0 : m_centreKHz, rig ? m_rigMode : QString());
 }
 
 void MainWindow::onRigState(bool connected, const QString& message)
 {
+    // Nothing to see while the rig answers. When it does not, one steady
+    // line. A connection that comes and goes (rigctld up, radio off) must
+    // not blink: the line appears only after the rig has been away for a
+    // few seconds, and goes when a frequency actually arrives.
+    const bool was = m_rigConnected;
     m_rigConnected = connected;
-    m_rigStatus->setText(message);
+    m_rigText->setToolTip(message);
+    if (!m_rigAwayTimer->isActive() && m_rigText->text().isEmpty())
+        m_rigAwayTimer->start(qMax(5000, 3 * m_settings.pollIntervalMs));
     updateHeader();
+    if (was != connected)
+        updatePlayer();   // the mode box changes hands with the rig
 }
 
 void MainWindow::onFrequencyEdited()
@@ -1081,6 +1154,9 @@ void MainWindow::onFollowToggled(bool follow)
 {
     m_settings.followRig = follow;
     m_settings.save(m_db);
+    if (!follow)
+        m_rigText->clear();   // manual mode: no complaint about a silent rig
+    updatePlayer();           // the mode box changes hands with the switch
     m_freqEdit->setReadOnly(follow);
     if (follow && m_rigHz > 0)
         setCentreKHz(m_rigHz / 1000.0, true);
@@ -1216,7 +1292,7 @@ void MainWindow::about()
 {
     QMessageBox::about(
         this, tr("About otd"),
-        tr("<h3>otd %1 <small style=\"font-weight:normal\">On The Dial</small></h3>"
+        tr("<h3>On The Dial %1 <small style=\"font-weight:normal\">otd</small></h3>"
            "<p>Shows which shortwave stations are scheduled on the frequency your "
            "receiver is tuned to, following the VFO through Hamlib's rigctld.</p>"
            "<p>Schedule data:</p><ul>"
@@ -1321,8 +1397,60 @@ bool MainWindow::tuneByKey(QKeyEvent* key)
     return true;
 }
 
+// Mouse wheel over one digit of the big frequency, without a rig: that
+// digit goes up or down, like the tuning step of a radio display.
+bool MainWindow::wheelOnFrequency(QWheelEvent* wheel)
+{
+    if (m_followRig->isChecked() || m_centreKHz <= 0.0)
+        return false;
+    const int steps = wheel->angleDelta().y() / 120;
+    if (steps == 0)
+        return false;
+    const QString text = m_freqLabel->text();
+    const QFontMetrics fm(m_freqLabel->font());
+    // the label draws its text at the left edge, with its margin
+    const double x = wheel->position().x() - m_freqLabel->contentsRect().left();
+    int idx = -1;
+    double left = 0.0;
+    for (int i = 0; i < text.size(); ++i)
+    {
+        const double w = fm.horizontalAdvance(text.at(i));
+        if (x >= left && x < left + w)
+        {
+            idx = i;
+            break;
+        }
+        left += w;
+    }
+    if (idx < 0 || !text.at(idx).isDigit())
+        return false;
+    // the digit's weight: count the digits between it and the decimal point
+    const int dot = text.indexOf(QLatin1Char('.'));
+    int place = 0;
+    if (idx < dot)
+    {
+        for (int i = idx + 1; i < dot; ++i)
+            if (text.at(i).isDigit())
+                ++place;
+    }
+    else
+    {
+        for (int i = dot + 1; i <= idx; ++i)
+            if (text.at(i).isDigit())
+                --place;
+    }
+    const double step = std::pow(10.0, place);
+    const double kHz = qMax(0.0, m_centreKHz + steps * step);
+    m_freqEdit->setText(QString::number(kHz, 'f', 3));
+    setCentreKHz(kHz, false);
+    return true;
+}
+
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
+    if (watched == m_freqLabel && event->type() == QEvent::Wheel
+        && wheelOnFrequency(static_cast<QWheelEvent*>(event)))
+        return true;
     // an application-wide filter sees every receiver, not the application
     // object: any key press while this window is active may be a tuning step
     if (event->type() == QEvent::KeyPress && isActiveWindow()
@@ -1428,6 +1556,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
     saveColumns();
     m_settings.kiwiVolume = m_player->volume();
     m_settings.kiwiReceivers = m_player->receivers();
+    m_settings.kiwiFavourites = m_player->favourites();
     m_settings.kiwiCurrent = m_player->currentReceiver();
     m_settings.save(m_db);
     QMainWindow::closeEvent(event);

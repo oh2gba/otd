@@ -16,7 +16,7 @@ int main(int argc, char* argv[])
     QCoreApplication::setOrganizationName(QStringLiteral("onthedial"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("otd.oh2gba.eu"));
     QCoreApplication::setApplicationName(QStringLiteral("otd"));
-    QApplication::setApplicationDisplayName(QStringLiteral("otd"));
+    QApplication::setApplicationDisplayName(QStringLiteral("On The Dial"));
     QCoreApplication::setApplicationVersion(QStringLiteral(OTD_VERSION));
     // the installed desktop entry (otd, or eu.oh2gba.otd in the Flatpak)
     QApplication::setDesktopFileName(QStringLiteral(OTD_DESKTOP_ID));

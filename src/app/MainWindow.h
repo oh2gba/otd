@@ -40,6 +40,7 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
     bool tuneByKey(class QKeyEvent* key);
+    bool wheelOnFrequency(class QWheelEvent* wheel);
 
 private slots:
     void onRigFrequency(qint64 hz);
@@ -122,7 +123,10 @@ private:
     DialScale* m_scale = nullptr;
     void updateScale();
     void tuneTo(double kHz, const QString& mode, qint64 flashId = 0);
-    QLabel* m_rigStatus = nullptr;
+    QLabel* m_rigText = nullptr;
+    QTimer* m_rigAwayTimer = nullptr;
+    bool m_manualUpdateCheck = false;
+    QLabel* m_sdrStatus = nullptr;
     QLabel* m_dbStatus = nullptr;
     QAction* m_updateAction = nullptr;
     QAction* m_onTopAction = nullptr;

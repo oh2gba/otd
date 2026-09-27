@@ -1,7 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=otd
-X-GNOME-FullName=otd, On The Dial
+Name=On The Dial
 GenericName=Shortwave station identifier
 Comment=Shows which shortwave stations are on the frequency your rig is tuned to
 Exec=otd

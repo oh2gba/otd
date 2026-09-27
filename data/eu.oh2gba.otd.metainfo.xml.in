@@ -37,6 +37,17 @@
   <categories><category>HamRadio</category><category>Network</category></categories>
   <keywords><keyword>shortwave</keyword><keyword>SWL</keyword><keyword>rigctld</keyword><keyword>EiBi</keyword></keywords>
   <releases>
+    <release version="1.6.2" date="2026-09-27">
+      <description>
+        <ul>
+          <li>KiwiSDR player: a plain receiver list with a search box, a star for favourites, a button to add your own address, and a mode box that is yours whenever no rig is followed</li>
+          <li>Without a rig: the dial starts on the remembered frequency (49 m at first), the wheel over a digit of the big frequency turns that digit, and the mode is remembered</li>
+          <li>Tuning sends the mode before the frequency, so radios with a mode offset land right</li>
+          <li>Status bar: one steady line while the rig is not answering, the receiver's state beside it, no Traficom count</li>
+          <li>A version check started from the menu reports its result</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.1" date="2026-09-27">
       <description>
         <ul>
