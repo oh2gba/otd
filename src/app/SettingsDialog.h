@@ -75,8 +75,6 @@ private:
     QCheckBox* m_traficomOn;
 
     QCheckBox* m_launch;
-    QLineEdit* m_rigctldPath;
-    QPushButton* m_browse;
     QComboBox* m_model;
     QComboBox* m_device;
     QComboBox* m_baud;
@@ -86,5 +84,4 @@ private:
 
 private slots:
     void reloadModels();
-    void browseRigctld();
 };

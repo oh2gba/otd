@@ -17,9 +17,9 @@ is left.
 Ready-made builds from the [GitHub releases](https://github.com/oh2gba/otd/releases), always the newest version, no installation needed:
 
 - Windows 10/11 (64-bit): [otd-setup.exe](https://github.com/oh2gba/otd/releases/latest/download/otd-setup.exe) installs for the current user, no administrator needed; or [otd-windows-x64.zip](https://github.com/oh2gba/otd/releases/latest/download/otd-windows-x64.zip), unzip and start `otd.exe`. Hamlib's rigctld is included in both.
-- Linux (64-bit): [otd-x86_64.AppImage](https://github.com/oh2gba/otd/releases/latest/download/otd-x86_64.AppImage), `chmod +x` and run. Needs the distribution's Hamlib package for rigctld.
+- Linux (64-bit): [otd-x86_64.AppImage](https://github.com/oh2gba/otd/releases/latest/download/otd-x86_64.AppImage), `chmod +x` and run. Hamlib's rigctld is included.
 - macOS 12 or newer (Apple Silicon and Intel): [otd-macos.dmg](https://github.com/oh2gba/otd/releases/latest/download/otd-macos.dmg).
-  The app is not notarized, so on first start right-click it and choose Open. Install rigctld with `brew install hamlib`.
+  The app is not notarized, so on first start right-click it and choose Open. Hamlib's rigctld is included.
 - Checksums: [SHA256SUMS.txt](https://github.com/oh2gba/otd/releases/latest/download/SHA256SUMS.txt). All versions: [releases](https://github.com/oh2gba/otd/releases).
 
 How to hook up the radio: <https://otd.oh2gba.eu/rig.html>

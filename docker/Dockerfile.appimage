@@ -26,6 +26,17 @@ RUN mkdir -p /opt/linuxdeploy && cd /opt/linuxdeploy \
     && wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage \
     && chmod +x *.AppImage
 
+# Hamlib's rigctld, linked statically so the AppImage carries one file
+ARG HAMLIB_VERSION=4.7.2
+RUN cd /tmp && wget -q https://github.com/Hamlib/Hamlib/releases/download/${HAMLIB_VERSION}/hamlib-${HAMLIB_VERSION}.tar.gz \
+    && tar xzf hamlib-${HAMLIB_VERSION}.tar.gz && cd hamlib-${HAMLIB_VERSION} \
+    && ./configure --prefix=/opt/hamlib --disable-shared --enable-static \
+         --without-cxx-binding --without-perl-binding --without-python-binding \
+         --without-tcl-binding --without-lua-binding --without-libusb >/dev/null \
+    && make -j"$(nproc)" >/dev/null && make install >/dev/null \
+    && install -Dm644 COPYING.LIB /opt/hamlib/COPYING.LIB \
+    && cd / && rm -rf /tmp/hamlib-${HAMLIB_VERSION}*
+
 ENV QT_VERSION=${QT_VERSION}
 ENV QT_DIR=/opt/qt/${QT_VERSION}/gcc_64
 # Only SQLite is used; the other SQL drivers would drag in client libraries.

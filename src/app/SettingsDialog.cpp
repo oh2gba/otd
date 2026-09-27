@@ -127,14 +127,6 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     auto* launchForm = new QFormLayout(launchBox);
     m_launch = new QCheckBox(tr("Start Hamlib's rigctld when the program starts"));
     m_launch->setChecked(cur.launchRigctld);
-    m_rigctldPath = new QLineEdit(cur.rigctldPath);
-    m_rigctldPath->setPlaceholderText(RigctldLauncher::defaultPath());
-    m_browse = new QPushButton(tr("..."));
-    m_browse->setMaximumWidth(36);
-    connect(m_browse, &QPushButton::clicked, this, &SettingsDialog::browseRigctld);
-    auto* pathRow = new QHBoxLayout;
-    pathRow->addWidget(m_rigctldPath, 1);
-    pathRow->addWidget(m_browse);
     m_model = new QComboBox;
     m_model->setEditable(false);
     m_model->setMinimumWidth(340);
@@ -159,14 +151,13 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     m_launchNote = new QLabel;
     m_launchNote->setWordWrap(true);
     launchForm->addRow(m_launch);
-    launchForm->addRow(tr("rigctld program:"), pathRow);
     launchForm->addRow(tr("Rig model:"), modelRow);
     launchForm->addRow(tr("Device:"), m_device);
     launchForm->addRow(tr("Baud rate:"), m_baud);
     launchForm->addRow(tr("Extra arguments:"), m_extra);
     launchForm->addRow(m_launchNote);
     auto enableLaunch = [this](bool on) {
-        for (QWidget* w : std::initializer_list<QWidget*>{m_rigctldPath, m_browse, m_model, m_device, m_baud, m_extra})
+        for (QWidget* w : std::initializer_list<QWidget*>{m_model, m_device, m_baud, m_extra})
             w->setEnabled(on);
     };
     enableLaunch(cur.launchRigctld);
@@ -276,7 +267,7 @@ void SettingsDialog::reloadModels()
 {
     QString error;
     const QVector<RigctldLauncher::Model> models =
-        RigctldLauncher::listModels(m_rigctldPath->text(), &error);
+        RigctldLauncher::listModels(QString(), &error);
     m_model->clear();
     int selected = -1;
     for (const RigctldLauncher::Model& m : models)
@@ -303,15 +294,6 @@ void SettingsDialog::reloadModels()
     m_model->setCurrentIndex(qMax(0, selected));
 }
 
-void SettingsDialog::browseRigctld()
-{
-    const QString file = QFileDialog::getOpenFileName(this, tr("Locate rigctld"));
-    if (!file.isEmpty())
-    {
-        m_rigctldPath->setText(file);
-        reloadModels();
-    }
-}
 
 AppSettings SettingsDialog::settings(const AppSettings& base) const
 {
@@ -332,7 +314,7 @@ AppSettings SettingsDialog::settings(const AppSettings& base) const
 
     s.traficomEnabled = m_traficomOn->isChecked();
     s.launchRigctld = m_launch->isChecked();
-    s.rigctldPath = m_rigctldPath->text().trimmed();
+    s.rigctldPath.clear();   // the bundled rigctld, or the one on the PATH, is always used
     s.rigModel = m_model->currentData().toInt();
     s.rigDevice = m_device->currentText().trimmed();
     s.rigBaud = m_baud->currentData().toInt();
