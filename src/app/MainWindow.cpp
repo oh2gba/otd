@@ -468,6 +468,9 @@ void MainWindow::buildUi()
     connect(m_scale, &DialScale::tuneRequested, this, [this](double kHz) {
         tuneTo(kHz, QString());
     });
+    connect(m_scale, &DialScale::spanChanged, this, [this](double kHz) {
+        m_settings.scaleSpanKHz = kHz;   // the zoom is remembered
+    });
 
     m_player = new KiwiPlayer;
     m_player->setVisible(false);
@@ -575,6 +578,7 @@ void MainWindow::applySettings()
         b5(m_scaleAction), b6(m_tableAction);
     m_scaleAction->setChecked(m_settings.showScale);
     m_scale->setVisible(m_settings.showScale);
+    m_scale->setSpanKHz(m_settings.scaleSpanKHz);
     m_tableAction->setChecked(m_settings.showTable);
     m_table->setVisible(m_settings.showTable);
     {

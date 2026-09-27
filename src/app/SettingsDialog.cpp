@@ -28,7 +28,7 @@ const char* kKeys[] = {"rig.host", "rig.port", "rig.pollMs", "view.toleranceKHz"
                        "rigctld.device", "rigctld.baud", "rigctld.extra", "view.ituRegion",
                        "update.check", "update.url", "view.scale", "view.table",
                        "view.player", "kiwi.receivers", "kiwi.current", "kiwi.volume",
-                       "data.traficomUrl", "data.traficomEnabled"};
+                       "data.traficomUrl", "data.traficomEnabled", "view.scaleSpan"};
 QString key(int i) { return QStringLiteral("settings.") + QLatin1String(kKeys[i]); }
 bool toBool(const QString& v, bool fallback)
 {
@@ -80,6 +80,7 @@ void AppSettings::load(const StationDb* db)
     kiwiVolume = qBound(0, int(num(28, kiwiVolume)), 100);
     traficomUrl = str(29, traficomUrl);
     traficomEnabled = toBool(str(30, QString()), traficomEnabled);
+    scaleSpanKHz = qBound(5.0, num(31, scaleSpanKHz), 20000.0);
 }
 
 void AppSettings::save(StationDb* db) const
@@ -95,7 +96,8 @@ void AppSettings::save(StationDb* db) const
         rigctldExtra, QString::number(ituRegion), QString::number(updateCheck ? 1 : 0), updateUrl,
         QString::number(showScale ? 1 : 0), QString::number(showTable ? 1 : 0),
         QString::number(showPlayer ? 1 : 0), kiwiReceivers.join(QLatin1Char('\n')), kiwiCurrent,
-        QString::number(kiwiVolume), traficomUrl, QString::number(traficomEnabled ? 1 : 0)};
+        QString::number(kiwiVolume), traficomUrl, QString::number(traficomEnabled ? 1 : 0),
+        QString::number(scaleSpanKHz)};
     for (int i = 0; i < int(sizeof(kKeys) / sizeof(kKeys[0])); ++i)
         db->setMeta(key(i), values[i]);
 }

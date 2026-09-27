@@ -32,6 +32,7 @@ public:
 
 signals:
     void tuneRequested(double kHz);
+    void spanChanged(double kHz);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -47,7 +48,7 @@ private:
     static double niceStep(double kHzPerPixel, int pixelsWanted);
 
     double m_centre = 0.0;
-    double m_span = 200.0;       // width of the visible scale in kHz
+    double m_span = 100.0;       // width of the visible scale in kHz
     double m_highlight = 0.0;
     QVector<Mark> m_marks;
     // dragging the scale moves the pointer without touching the rig

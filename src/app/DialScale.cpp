@@ -234,6 +234,7 @@ void DialScale::wheelEvent(QWheelEvent* event)
             idx = i;
     idx = qBound(0, idx - steps, int(std::size(spans)) - 1);   // wheel up = zoom in
     setSpanKHz(spans[idx]);
+    emit spanChanged(m_span);
     event->accept();
 }
 

@@ -44,6 +44,7 @@ struct AppSettings
     bool showScale = true;
     bool showTable = true;
     bool showPlayer = false;
+    double scaleSpanKHz = 100.0;   // width of the dial scale
     QStringList kiwiReceivers;
     QString kiwiCurrent;
     int kiwiVolume = 70;
