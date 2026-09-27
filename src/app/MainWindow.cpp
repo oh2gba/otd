@@ -1309,7 +1309,9 @@ bool MainWindow::tuneByKey(QKeyEvent* key)
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
-    if (watched == qApp && event->type() == QEvent::KeyPress && isActiveWindow()
+    // an application-wide filter sees every receiver, not the application
+    // object: any key press while this window is active may be a tuning step
+    if (event->type() == QEvent::KeyPress && isActiveWindow()
         && tuneByKey(static_cast<QKeyEvent*>(event)))
         return true;
     if (watched == m_table->viewport() && event->type() == QEvent::Resize && isVisible())
