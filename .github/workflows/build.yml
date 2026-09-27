@@ -64,9 +64,7 @@ jobs:
               make -j"$(sysctl -n hw.ncpu)" >/dev/null && make install >/dev/null )
           done
           mkdir -p hamlib-universal
-          for tool in rigctld rigctl; do
-            lipo -create "hamlib-arm64/bin/$tool" "hamlib-x86_64/bin/$tool" -output "hamlib-universal/$tool"
-          done
+          lipo -create hamlib-arm64/bin/rigctld hamlib-x86_64/bin/rigctld -output hamlib-universal/rigctld
           cp "hamlib-$HV/COPYING.LIB" hamlib-universal/
           lipo -info hamlib-universal/rigctld
           hamlib-universal/rigctld -l | head -3
@@ -80,7 +78,7 @@ jobs:
           cmake --build build
           # rigctld inside the bundle, where otd looks first
           mkdir -p build/otd.app/Contents/MacOS/hamlib build/otd.app/Contents/Resources/licenses/hamlib
-          cp hamlib-universal/rigctld hamlib-universal/rigctl build/otd.app/Contents/MacOS/hamlib/
+          cp hamlib-universal/rigctld build/otd.app/Contents/MacOS/hamlib/
           cp hamlib-universal/COPYING.LIB build/otd.app/Contents/Resources/licenses/hamlib/
           build/otd.app/Contents/MacOS/hamlib/rigctld --version
           "$QT/bin/macdeployqt" build/otd.app -dmg

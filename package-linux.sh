@@ -17,7 +17,6 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src "$IMA
   DESTDIR=build-appimage/AppDir cmake --install build-appimage
   # Hamlib's rigctld next to the program, where otd looks first
   install -Dm755 /opt/hamlib/bin/rigctld build-appimage/AppDir/usr/bin/hamlib/rigctld
-  install -Dm755 /opt/hamlib/bin/rigctl  build-appimage/AppDir/usr/bin/hamlib/rigctl
   install -Dm644 /opt/hamlib/COPYING.LIB build-appimage/AppDir/usr/share/licenses/otd/hamlib/COPYING.LIB
   cd build-appimage
   export VERSION=$VERSION
@@ -29,7 +28,7 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src "$IMA
   export EXTRA_QT_PLUGINS=multimedia
   export EXTRA_PLATFORM_PLUGINS=libqwayland-generic.so\;libqwayland-egl.so
   linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage \
-      --executable AppDir/usr/bin/hamlib/rigctld --executable AppDir/usr/bin/hamlib/rigctl \
+      --executable AppDir/usr/bin/hamlib/rigctld \
       --desktop-file AppDir/usr/share/applications/otd.desktop \
       --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/otd.svg
   mv *.AppImage ../dist/otd-$VERSION-x86_64.AppImage
