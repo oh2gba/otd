@@ -37,6 +37,16 @@
   <categories><category>HamRadio</category><category>Network</category></categories>
   <keywords><keyword>shortwave</keyword><keyword>SWL</keyword><keyword>rigctld</keyword><keyword>EiBi</keyword></keywords>
   <releases>
+    <release version="1.6.1" date="2026-09-27">
+      <description>
+        <ul>
+          <li>The dial scale follows the "On air only" switch</li>
+          <li>Traficom's allocation table and the KiwiSDR player are on by default</li>
+          <li>View switches, filters and the dial zoom are saved the moment they change</li>
+          <li>With rigctld started by otd, the host is fixed to this machine</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.0" date="2026-09-27">
       <description>
         <ul>

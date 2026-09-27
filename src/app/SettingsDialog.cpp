@@ -161,6 +161,11 @@ SettingsDialog::SettingsDialog(const AppSettings& cur, QWidget* parent)
     auto enableLaunch = [this](bool on) {
         for (QWidget* w : std::initializer_list<QWidget*>{m_model, m_device, m_baud, m_extra})
             w->setEnabled(on);
+        // a rigctld started by otd always runs on this machine; port and
+        // poll interval stay adjustable
+        m_host->setEnabled(!on);
+        if (on)
+            m_host->setText(QStringLiteral("localhost"));
     };
     enableLaunch(cur.launchRigctld);
     connect(m_launch, &QCheckBox::toggled, this, enableLaunch);
@@ -307,8 +312,9 @@ void SettingsDialog::reloadModels()
 AppSettings SettingsDialog::settings(const AppSettings& base) const
 {
     AppSettings s = base;
-    s.rigHost = m_host->text().trimmed().isEmpty() ? QStringLiteral("localhost")
-                                                   : m_host->text().trimmed();
+    s.rigHost = (m_launch->isChecked() || m_host->text().trimmed().isEmpty())
+                    ? QStringLiteral("localhost")
+                    : m_host->text().trimmed();
     s.rigPort = m_port->value();
     s.pollIntervalMs = m_poll->value();
     s.toleranceKHz = m_tolerance->value();
