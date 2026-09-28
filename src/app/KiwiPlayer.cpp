@@ -213,9 +213,10 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
     connect(m_modeBox, &QComboBox::activated, this, [this](int) {
         if (m_rigDriven)
             return;
-        m_mode = m_modeBox->currentText();
+        m_manualMode = m_modeBox->currentText();
+        m_mode = m_manualMode;
         m_client.tune(m_kHz, m_mode);
-        emit manualModeChanged(m_mode);
+        emit manualModeChanged(m_manualMode);
     });
 
     // the star marks a favourite: starred receivers lead the list
@@ -242,7 +243,9 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
         const QString text = QInputDialog::getText(this, tr("Add a KiwiSDR receiver"),
                                                    tr("Address of the receiver (http://host:port):"),
                                                    QLineEdit::Normal, QStringLiteral("http://"), &ok).trimmed();
-        if (!ok || text.isEmpty() || !text.contains(QLatin1Char('.')))
+        // anything the client can connect to: host:port, IP:port, with or
+        // without http://; the untouched "http://" has no host
+        if (!ok || KiwiClient::receiverUrl(text).host().isEmpty())
             return;
         m_current = text;
         if (!m_custom.contains(text))
@@ -290,6 +293,8 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
 KiwiPlayer::~KiwiPlayer()
 {
     m_client.close();
+    if (m_sink)
+        m_sink->disconnect(this);
     delete m_sink;
 }
 
@@ -301,6 +306,8 @@ QString sinkStateText(QAudio::State st, QAudio::Error err)
         return KiwiPlayer::tr("sound device could not be opened");
     if (err == QAudio::IOError)
         return KiwiPlayer::tr("sound device error");
+    if (err == QAudio::FatalError)
+        return KiwiPlayer::tr("sound device failed");
     switch (st)
     {
     case QAudio::ActiveState:    return KiwiPlayer::tr("playing");
@@ -401,9 +408,10 @@ void KiwiPlayer::rebuildList()
     int own = 0;
     for (const QString& url : m_custom)
     {
-        if (m_favourites.contains(url) || !matches(url, QString(), QString()))
+        const QString label = labelOf(url);
+        if (m_favourites.contains(url) || !matches(label, url, QString()))
             continue;
-        m_receiver->addItem(starIcon(false), url, url);
+        m_receiver->addItem(starIcon(false), label, url);
         ++own;
         ++shown;
     }
@@ -412,7 +420,7 @@ void KiwiPlayer::rebuildList()
     // then the public directory
     for (const KiwiDirectory::Receiver& r : m_directory)
     {
-        if (r.offline || m_favourites.contains(r.url))
+        if (r.offline || m_favourites.contains(r.url) || m_custom.contains(r.url))
             continue;
         if (!matches(r.location, r.name, r.url))
             continue;
@@ -421,11 +429,17 @@ void KiwiPlayer::rebuildList()
     }
     if (!needle.isEmpty() && shown == 0)
         m_receiver->addItem(tr("(no receiver matches \"%1\")").arg(needle), QString());
-    // show the current choice by its label when it is in the list
-    int idx = -1;
-    for (int i = 0; i < m_receiver->count() && idx < 0; ++i)
-        if (m_receiver->itemData(i).toString() == m_current)
-            idx = i;
+    // The current receiver is always there and chosen, even when the search
+    // hides it or an update calls it offline or leaves it out: the list names
+    // the receiver being heard, and the star, + and the saved choice act on
+    // it, not on whatever happens to be first.
+    if (!m_current.isEmpty() && m_receiver->findData(m_current) < 0)
+    {
+        if (m_receiver->count() > 0)
+            m_receiver->insertSeparator(0);
+        m_receiver->insertItem(0, starIcon(m_favourites.contains(m_current)), labelOf(m_current), m_current);
+    }
+    const int idx = m_current.isEmpty() ? -1 : m_receiver->findData(m_current);
     if (idx >= 0)
         m_receiver->setCurrentIndex(idx);
     else if (m_receiver->count() > 0)
@@ -456,17 +470,10 @@ void KiwiPlayer::rememberCurrent()
     const QString cur = currentReceiver();
     if (cur.isEmpty())
         return;
+    // Only + makes an address the user's own. A directory receiver that is
+    // off the list for a while stays the current one (rebuildList keeps it)
+    // without being copied into the own addresses for good.
     m_current = cur;
-    // an address that is not in the public directory is kept as the user's own
-    bool known = false;
-    for (const KiwiDirectory::Receiver& r : m_directory)
-        if (r.url == cur)
-            known = true;
-    if (!known && !m_custom.contains(cur))
-    {
-        m_custom.prepend(cur);
-        rebuildList();
-    }
     emit receiversChanged();
 }
 
@@ -484,16 +491,28 @@ void KiwiPlayer::togglePlay()
         return;
     }
     rememberCurrent();
+    emit playRequested();
     m_play->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
     m_client.tune(m_kHz, m_mode);
-    m_client.open(QUrl(cur));
+    m_client.open(cur);
 }
 
 void KiwiPlayer::stop()
 {
-    m_client.close();
+    stopWith(QString());
+}
+
+// The one way playing ends: the session, the sound and the controls go
+// back to rest, and the status says why (empty: stopped on request).
+void KiwiPlayer::stopWith(const QString& status)
+{
+    m_client.close();   // emits nothing, so the status below stays
+    ++m_sessionsEnded;
     if (m_sink)
+    {
+        m_sink->disconnect(this);   // no state texts from a sink on its way out
         m_sink->stop();
+    }
     delete m_sink;
     m_sink = nullptr;
     delete m_queue;
@@ -501,7 +520,7 @@ void KiwiPlayer::stop()
     m_sinkRate = 0;
     m_play->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
     m_meter->clear();
-    setStatus(QString());
+    setStatus(status);
 }
 
 void KiwiPlayer::tune(double kHz, const QString& rigMode)
@@ -513,8 +532,9 @@ void KiwiPlayer::tune(double kHz, const QString& rigMode)
     {
         // show the rig's mode in the box too, mapped onto what the receiver has
         const QString up = rigMode.toUpper();
-        const QString shown = up.startsWith(QLatin1String("USB")) ? QStringLiteral("USB")
-                            : up.startsWith(QLatin1String("LSB")) ? QStringLiteral("LSB")
+        // (Hamlib's data and ECSS modes end in the sideband: PKTUSB, ECSSLSB)
+        const QString shown = up.endsWith(QLatin1String("USB"))   ? QStringLiteral("USB")
+                            : up.endsWith(QLatin1String("LSB"))   ? QStringLiteral("LSB")
                             : up.startsWith(QLatin1String("CW"))  ? QStringLiteral("CW")
                             : up.contains(QLatin1String("FM"))    ? QStringLiteral("NFM")
                                                                    : QStringLiteral("AM");
@@ -523,20 +543,26 @@ void KiwiPlayer::tune(double kHz, const QString& rigMode)
         m_mode = shown;
     }
     else
-        m_mode = m_modeBox->currentText();
+    {
+        // back in the listener's hands: their own mode, not the rig's last one
+        const QSignalBlocker b(m_modeBox);
+        m_modeBox->setCurrentText(m_manualMode);
+        m_mode = m_manualMode;
+    }
     m_client.tune(kHz, m_mode);
-}
-
-QString KiwiPlayer::manualMode() const
-{
-    return m_modeBox->currentText();
 }
 
 void KiwiPlayer::setManualMode(const QString& mode)
 {
+    if (m_modeBox->findText(mode) < 0)
+        return;
+    m_manualMode = mode;
+    if (m_rigDriven)
+        return;   // the rig leads for now; this applies when it stops
     const QSignalBlocker b(m_modeBox);
-    if (m_modeBox->findText(mode) >= 0)
-        m_modeBox->setCurrentText(mode);
+    m_modeBox->setCurrentText(mode);
+    m_mode = mode;
+    m_client.tune(m_kHz, m_mode);
 }
 
 void KiwiPlayer::onAudio(const QByteArray& pcm)
@@ -544,6 +570,8 @@ void KiwiPlayer::onAudio(const QByteArray& pcm)
     const int rate = m_client.sampleRate();
     if (!m_sink || m_sinkRate != rate)
     {
+        if (m_sink)
+            m_sink->disconnect(this);
         delete m_sink;
         m_sink = nullptr;
         delete m_queue;
@@ -555,14 +583,12 @@ void KiwiPlayer::onAudio(const QByteArray& pcm)
         const QAudioDevice dev = QMediaDevices::defaultAudioOutput();
         if (dev.isNull())
         {
-            setStatus(tr("No sound output device"));
-            m_client.close();
+            stopWith(tr("No sound output device"));
             return;
         }
         if (!dev.isFormatSupported(fmt))
         {
-            setStatus(tr("Sound device %1 does not take %2 Hz mono").arg(dev.description()).arg(rate));
-            m_client.close();
+            stopWith(tr("Sound device %1 does not take %2 Hz mono").arg(dev.description()).arg(rate));
             return;
         }
         m_queue = new PcmQueue(rate * 2, this);
@@ -570,9 +596,7 @@ void KiwiPlayer::onAudio(const QByteArray& pcm)
         m_sink->setBufferSize(rate * 2 / 2);   // half a second in the device
         m_sink->setVolume(m_volume->value() / 100.0);
         connect(m_sink, &QAudioSink::stateChanged, this, [this](QAudio::State st) {
-            const QString t = sinkStateText(st, m_sink->error());
-            if (!t.isEmpty())
-                setStatus(tr("%1: %2").arg(m_client.receiver().host(), t));
+            onSinkState(st, m_sink->error());
         });
         m_sink->start(m_queue);   // pull mode: the sink asks, the queue answers
         m_sinkRate = rate;
@@ -580,18 +604,30 @@ void KiwiPlayer::onAudio(const QByteArray& pcm)
     m_queue->push(pcm);
 }
 
+void KiwiPlayer::onSinkState(QAudio::State state, QAudio::Error error)
+{
+    const QString t = sinkStateText(state, error);
+    const bool failed = state == QAudio::StoppedState
+                        && (error == QAudio::OpenError || error == QAudio::IOError || error == QAudio::FatalError);
+    if (!failed)
+    {
+        if (!t.isEmpty())
+            setStatus(tr("%1: %2").arg(m_client.receiver().host(), t));
+        return;
+    }
+    // The sound is gone, so the session ends too. Not from here: this runs
+    // inside the sink's own signal and stopWith deletes the sink. If the
+    // session has ended some other way meanwhile, there is nothing to do.
+    const int session = m_sessionsEnded;
+    QMetaObject::invokeMethod(this, [this, session, t]() {
+        if (session == m_sessionsEnded)
+            stopWith(tr("Stopped: %1").arg(t));
+    }, Qt::QueuedConnection);
+}
+
 void KiwiPlayer::onClosed(const QString& reason)
 {
-    if (m_sink)
-        m_sink->stop();
-    delete m_sink;
-    m_sink = nullptr;
-    delete m_queue;
-    m_queue = nullptr;
-    m_sinkRate = 0;
-    m_play->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    m_meter->clear();
-    setStatus(reason.isEmpty() ? QString() : tr("Stopped: %1").arg(reason));
+    stopWith(tr("Stopped: %1").arg(reason));
 }
 
 void KiwiPlayer::setStatus(const QString& text)

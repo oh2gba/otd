@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(otd VERSION 1.6.2 LANGUAGES C CXX)
+project(otd VERSION 1.6.3 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,8 +56,11 @@ target_compile_definitions(otd_core PUBLIC
   QT_NO_CAST_FROM_ASCII_DISABLED)
 
 # ---- application --------------------------------------------------------
-add_executable(otd WIN32 MACOSX_BUNDLE
-  src/app/main.cpp
+# Everything but main() is compiled once, so that the tests can drive the
+# real main window. An object library rather than a static one: a linker
+# drops the compiled-in resources (the icons) from a static library, as
+# nothing refers to them by name.
+add_library(otd_app OBJECT
   src/app/MainWindow.h       src/app/MainWindow.cpp
   src/app/StationModel.h     src/app/StationModel.cpp
   src/app/DialScale.h        src/app/DialScale.cpp
@@ -67,7 +70,10 @@ add_executable(otd WIN32 MACOSX_BUNDLE
   src/app/MyStationsDialog.h src/app/MyStationsDialog.cpp
   src/app/resources.qrc
 )
-target_link_libraries(otd PRIVATE otd_core Qt6::Widgets Qt6::Gui Qt6::Multimedia)
+target_link_libraries(otd_app PUBLIC otd_core Qt6::Widgets Qt6::Gui Qt6::Multimedia)
+
+add_executable(otd WIN32 MACOSX_BUNDLE src/app/main.cpp)
+target_link_libraries(otd PRIVATE otd_app)
 target_compile_definitions(otd PRIVATE OTD_DESKTOP_ID="${OTD_DESKTOP_ID}")
 if(WIN32)
   # icon and version block for otd.exe
@@ -83,6 +89,7 @@ set_target_properties(otd PROPERTIES
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(otd_core PRIVATE -Wall -Wextra)
+  target_compile_options(otd_app PRIVATE -Wall -Wextra)
   target_compile_options(otd PRIVATE -Wall -Wextra)
 endif()
 

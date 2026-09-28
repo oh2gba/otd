@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QList>
 #include <QObject>
 #include <QString>
@@ -12,7 +13,8 @@ class StationDb;
 
 // The list of public KiwiSDR receivers, as mirrored for the receiver map
 // at rx.linkfanel.net (generated from kiwisdr.com/public). Fetched at
-// most once a day with If-Modified-Since, kept in the database.
+// most once a week, and only when the player is used; kept in the database.
+// After a failed fetch the automatic refresh waits an hour.
 class KiwiDirectory : public QObject
 {
     Q_OBJECT
@@ -34,8 +36,9 @@ public:
 
     QList<Receiver> receivers() const { return m_receivers; }
     QDateTime fetched() const;
-    bool isStale(int maxAgeHours = 24) const;
+    bool isStale(int maxAgeHours = 24 * 7) const;
     static QUrl defaultUrl();
+    void setUrl(const QUrl& url) { m_url = url; }   // for the unit test
 
     // Parses the JavaScript file ("var kiwisdr_com = [ ... ];") or plain JSON.
     static QList<Receiver> parse(const QByteArray& data, QString* error = nullptr);
@@ -55,4 +58,6 @@ private:
     QNetworkAccessManager* m_nam;
     QList<Receiver> m_receivers;
     bool m_busy = false;
+    QUrl m_url = defaultUrl();
+    QElapsedTimer m_sinceFailure;   // runs from the last failed fetch
 };

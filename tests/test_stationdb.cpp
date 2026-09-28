@@ -18,6 +18,27 @@ class TestStationDb : public QObject
     }
 
 private slots:
+    // The frequency matches as written in the list, with all its decimals:
+    // "13553.125" and "10000.25" must be found (a 6-digit rendering lost them).
+    void searchMatchesFrequencyText()
+    {
+        QTemporaryDir dir;
+        StationDb db(dir.filePath("s.db"));
+        QVERIFY2(db.open(), qPrintable(db.lastError()));
+        StationList list;
+        list << entry(13553.125, "HiFER beacon") << entry(10000.25, "Odd one") << entry(9500, "Round")
+             << entry(11774.7, "Sound of Hope");
+        QVERIFY(db.replaceSource("eibi", list));
+        QCOMPARE(db.search("13553.125").size(), 1);
+        QCOMPARE(db.search("10000.25").size(), 1);
+        QCOMPARE(db.search("9500").size(), 1);
+        QCOMPARE(db.search("9500.0").size(), 0);      // written without decimals in the list
+        QCOMPARE(db.search("11774.7").size(), 1);
+        QCOMPARE(db.search("11774.70").size(), 0);
+        QCOMPARE(db.search("1355").size(), 1);
+        QCOMPARE(db.search("!13553 beacon").size(), 0);
+    }
+
     void roundTripAndLookup()
     {
         QTemporaryDir dir;

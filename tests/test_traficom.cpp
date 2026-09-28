@@ -3,8 +3,40 @@
 #include "core/StationDb.h"
 #include "core/TraficomSource.h"
 
+#include <QNetworkAccessManager>
+#include <QNetworkProxy>
+#include <QSignalSpy>
+#include <QTcpServer>
 #include <QTemporaryDir>
 #include <QtTest>
+
+namespace
+{
+// Counts the requests made through it; nothing leaves this machine.
+class CountingNam : public QNetworkAccessManager
+{
+public:
+    int requests = 0;
+    CountingNam() { setProxy(QNetworkProxy::NoProxy); }
+
+protected:
+    QNetworkReply* createRequest(Operation op, const QNetworkRequest& req, QIODevice* data) override
+    {
+        ++requests;
+        return QNetworkAccessManager::createRequest(op, req, data);
+    }
+};
+
+// An address on this machine where nothing listens: a request fails at once.
+QUrl closedPortUrl()
+{
+    QTcpServer probe;
+    probe.listen(QHostAddress::LocalHost);
+    const quint16 port = probe.serverPort();
+    probe.close();
+    return QUrl(QStringLiteral("http://127.0.0.1:%1/kiwisdr_com.js").arg(port));
+}
+}
 
 class TestTraficom : public QObject
 {
@@ -57,6 +89,88 @@ private slots:
         QCOMPARE(db.allocationsAt(100.0).size(), 0);
         QVERIFY(db.replaceAllocations("traficom", {}));
         QCOMPARE(db.allocationCount("traficom"), 0);
+    }
+
+    // The receiver list is fetched at most weekly: a fetch today is fresh,
+    // one six days ago still fresh, eight days ago stale, none at all stale.
+    void kiwiDirectoryIsWeekly()
+    {
+        QTemporaryDir dir;
+        StationDb db(dir.filePath("stations.db"));
+        QVERIFY2(db.open(), qPrintable(db.lastError()));
+        QNetworkAccessManager nam;
+        KiwiDirectory directory(&db, &nam);
+        QVERIFY(directory.isStale());
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        db.setMeta("kiwi.directory.fetched", now.toString(Qt::ISODate));
+        QVERIFY(!directory.isStale());
+        db.setMeta("kiwi.directory.fetched", now.addDays(-6).toString(Qt::ISODate));
+        QVERIFY(!directory.isStale());
+        db.setMeta("kiwi.directory.fetched", now.addDays(-8).toString(Qt::ISODate));
+        QVERIFY(directory.isStale());
+    }
+
+    // After a failed fetch the automatic refresh does not try again at once:
+    // while the server fails, each press of Play would fetch ~900 KB again.
+    // A refresh the listener asks for still goes out.
+    void kiwiFailedFetchIsNotRetriedAtOnce()
+    {
+        QTemporaryDir dir;
+        StationDb db(dir.filePath("stations.db"));
+        QVERIFY2(db.open(), qPrintable(db.lastError()));
+        CountingNam nam;
+        KiwiDirectory directory(&db, &nam);
+        directory.setUrl(closedPortUrl());
+        QSignalSpy failed(&directory, &KiwiDirectory::failed);
+        QSignalSpy updated(&directory, &KiwiDirectory::updated);
+        directory.refresh();
+        QCOMPARE(nam.requests, 1);
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 10000);
+        directory.refresh();   // the automatic refresh, as on the next play
+        QCOMPARE(nam.requests, 1);
+        QTest::qWait(300);     // a second failure from the closed port would be in by now
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(updated.count(), 0);
+        QVERIFY(directory.receivers().isEmpty());
+        QVERIFY(directory.isStale());   // a failure is not a fetch
+        // the listener asking (player shown, Settings OK) still tries, and
+        // says so when it fails again
+        directory.refresh(true);
+        QCOMPARE(nam.requests, 2);
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 2, 10000);
+    }
+
+    // A list fetched six days ago is left alone unless forced; one fetched
+    // eight days ago is fetched again.
+    void kiwiRefreshHonoursWeeklyAge()
+    {
+        QTemporaryDir dir;
+        StationDb db(dir.filePath("stations.db"));
+        QVERIFY2(db.open(), qPrintable(db.lastError()));
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        const QUrl nowhere = closedPortUrl();
+        {
+            db.setMeta("kiwi.directory.fetched", now.addDays(-6).toString(Qt::ISODate));
+            CountingNam nam;
+            KiwiDirectory directory(&db, &nam);
+            directory.setUrl(nowhere);
+            QSignalSpy failed(&directory, &KiwiDirectory::failed);
+            directory.refresh();
+            QCOMPARE(nam.requests, 0);
+            directory.refresh(true);
+            QCOMPARE(nam.requests, 1);
+            QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 10000);
+        }
+        {
+            db.setMeta("kiwi.directory.fetched", now.addDays(-8).toString(Qt::ISODate));
+            CountingNam nam;
+            KiwiDirectory directory(&db, &nam);
+            directory.setUrl(nowhere);
+            QSignalSpy failed(&directory, &KiwiDirectory::failed);
+            directory.refresh();
+            QCOMPARE(nam.requests, 1);
+            QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 10000);
+        }
     }
 
     void parsesKiwiDirectory()

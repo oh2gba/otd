@@ -62,7 +62,9 @@ void AppSettings::load(const StationDb* db)
     hfccEnabled = toBool(str(12, QString()), hfccEnabled);
     aokiEnabled = toBool(str(13, QString()), aokiEnabled);
     launchRigctld = toBool(str(14, QString()), launchRigctld);
-    rigctldPath = str(15, rigctldPath);
+    // rigctld.path is no longer offered in Settings; a value stored by an
+    // older version must not keep overriding the included rigctld unseen
+    rigctldPath.clear();
     rigModel = int(num(16, rigModel));
     rigDevice = str(17, rigDevice);
     rigBaud = int(num(18, rigBaud));

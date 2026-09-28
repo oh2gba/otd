@@ -13,6 +13,7 @@ class RigClient : public QObject
     Q_OBJECT
 public:
     explicit RigClient(QObject* parent = nullptr);
+    ~RigClient() override;
 
     void setEndpoint(const QString& host, quint16 port);
     void setPollInterval(int ms);
@@ -20,6 +21,13 @@ public:
     QString host() const { return m_host; }
     quint16 port() const { return m_port; }
     bool isConnected() const { return m_socket.state() == QAbstractSocket::ConnectedState; }
+    // True while the rig actually answers frequency polls. A connection to
+    // rigctld alone does not count: with the radio switched off rigctld
+    // accepts the connection but answers every poll with an error report.
+    bool isAnswering() const { return m_answer == Answer::Yes; }
+    // How long without a valid frequency answer before the rig counts as
+    // silent; 0 (the default) means three poll intervals, at least 5 s.
+    void setSilenceTimeout(int ms);
     qint64 frequencyHz() const { return m_frequencyHz; }
     QString mode() const { return m_mode; }
     int passbandHz() const { return m_passband; }
@@ -34,7 +42,14 @@ public slots:
     void reconnectSoon();
 
 signals:
+    // Only when the value changes; after a silence the next answer is
+    // reported again even if the frequency is the same.
     void frequencyChanged(qint64 hz);
+    // The rig started answering (true), or has been silent for the silence
+    // timeout (false). Emitted on changes only, and once for a rig that has
+    // never answered since start(). A new endpoint that stays silent is
+    // reported again, even when the old one was silent too.
+    void answeringChanged(bool answering);
     void modeChanged(const QString& mode, int passbandHz);
     void stateChanged(bool connected, const QString& message);
 
@@ -49,6 +64,13 @@ private slots:
 private:
     void handleLine(const QByteArray& line);
     void scheduleReconnect();
+    void onSilence();
+    void armSilenceTimer();
+
+    enum class Answer { Unknown, Yes, No };
+    Answer m_answer = Answer::Unknown;
+    QTimer m_silenceTimer;
+    int m_silenceTimeoutMs = 0;
 
     enum Expect { ExFreq, ExMode, ExPassband, ExReport };
     QQueue<Expect> m_expect;   // answers still owed by the server, in order

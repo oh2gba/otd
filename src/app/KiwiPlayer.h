@@ -4,6 +4,7 @@
 #include "core/KiwiClient.h"
 #include "core/KiwiDirectory.h"
 
+#include <QAudio>
 #include <QWidget>
 
 class PcmQueue;
@@ -37,19 +38,25 @@ public:
     bool isPlaying() const { return m_client.isOpen(); }
     // rigMode empty: no rig is followed, the user's own mode choice applies
     void tune(double kHz, const QString& rigMode);
-    QString manualMode() const;
+    QString manualMode() const { return m_manualMode; }   // the listener's own choice
     void setManualMode(const QString& mode);
     void stop();
+
+    // What the sound device reports; a failure ends the session. Public for
+    // the unit test, which has no sound device that could fail.
+    void onSinkState(QAudio::State state, QAudio::Error error);
 
 signals:
     void receiversChanged();
     void statusChanged(const QString& text);   // what the receiver is doing, empty when idle
-    void manualModeChanged(const QString& mode);
+    void manualModeChanged(const QString& mode);   // only when the listener picks one
+    void playRequested();   // the user started a receiver
 
 private:
     void togglePlay();
     void onAudio(const QByteArray& pcm);
     void onClosed(const QString& reason);
+    void stopWith(const QString& status);
     void setStatus(const QString& text);
     void rememberCurrent();
     void rebuildList();
@@ -76,6 +83,8 @@ private:
     QAudioSink* m_sink = nullptr;
     PcmQueue* m_queue = nullptr;
     int m_sinkRate = 0;
+    int m_sessionsEnded = 0;   // a late failure report for an ended session is dropped
     double m_kHz = 0.0;
-    QString m_mode = QStringLiteral("AM");
+    QString m_mode = QStringLiteral("AM");         // what the receiver demodulates now
+    QString m_manualMode = QStringLiteral("AM");   // the listener's own choice, for when no rig leads
 };

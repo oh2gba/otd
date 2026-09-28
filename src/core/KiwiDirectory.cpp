@@ -113,7 +113,13 @@ void KiwiDirectory::refresh(bool force)
 {
     if (m_busy || (!force && !isStale()))
         return;
-    QNetworkRequest req(defaultUrl());
+    // The file is large: while the server fails, each use of the player
+    // would ask again, so after a failure the automatic refresh waits an
+    // hour. A forced one (the list is empty, and the listener shows the
+    // player or confirms Settings) still asks.
+    if (!force && m_sinceFailure.isValid() && m_sinceFailure.elapsed() < 3600 * 1000)
+        return;
+    QNetworkRequest req(m_url);
     req.setHeader(QNetworkRequest::UserAgentHeader,
                   QStringLiteral("otd/") + QLatin1String(OTD_VERSION)
                       + QStringLiteral(" (+https://github.com/oh2gba/otd)"));
@@ -135,6 +141,7 @@ void KiwiDirectory::refresh(bool force)
         }
         if (reply->error() != QNetworkReply::NoError || status != 200)
         {
+            m_sinceFailure.start();
             emit failed(reply->error() != QNetworkReply::NoError ? reply->errorString()
                                                                  : QString::number(status));
             return;
@@ -144,9 +151,11 @@ void KiwiDirectory::refresh(bool force)
         const QList<Receiver> list = parse(data, &err);
         if (list.size() < 10)
         {
+            m_sinceFailure.start();
             emit failed(err.isEmpty() ? QStringLiteral("receiver list is empty") : err);
             return;
         }
+        m_sinceFailure.invalidate();   // the server is fine again
         // keep only what the app uses, as compact JSON
         QJsonArray arr;
         for (const Receiver& r : list)

@@ -23,6 +23,41 @@ RigClient::RigClient(QObject* parent)
     m_reconnectTimer.setSingleShot(true);
     m_reconnectTimer.setInterval(3000);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &RigClient::connectNow);
+
+    m_silenceTimer.setSingleShot(true);
+    connect(&m_silenceTimer, &QTimer::timeout, this, &RigClient::onSilence);
+}
+
+RigClient::~RigClient()
+{
+    // The socket outlives the timers (members go in reverse order) and says
+    // "disconnected" as it closes; nothing here may run on the way out.
+    m_socket.disconnect(this);
+}
+
+void RigClient::setSilenceTimeout(int ms)
+{
+    m_silenceTimeoutMs = qMax(0, ms);
+    if (m_silenceTimer.isActive())
+        armSilenceTimer();
+}
+
+void RigClient::armSilenceTimer()
+{
+    const int ms = m_silenceTimeoutMs > 0 ? m_silenceTimeoutMs : qMax(5000, 3 * m_pollTimer.interval());
+    m_silenceTimer.start(ms);
+}
+
+void RigClient::onSilence()
+{
+    if (!m_enabled || m_answer == Answer::No)
+        return;
+    m_answer = Answer::No;
+    // forget what the rig said last, so that the first answer after the
+    // silence is reported even when the dial has not moved
+    m_frequencyHz = 0;
+    m_mode.clear();
+    emit answeringChanged(false);
 }
 
 void RigClient::setEndpoint(const QString& host, quint16 port)
@@ -33,6 +68,13 @@ void RigClient::setEndpoint(const QString& host, quint16 port)
     m_port = port;
     if (m_enabled)
     {
+        // The new address gets its own verdict: forget a "not answering" so
+        // that it is said again if the new one is silent too. A rig that
+        // answered stays answering until the watchdog says otherwise, so the
+        // warning does not flash while the new one is reached.
+        if (m_answer == Answer::No)
+            m_answer = Answer::Unknown;
+        armSilenceTimer();
         m_socket.abort();
         m_reconnectTimer.stop();
         connectNow();
@@ -41,12 +83,21 @@ void RigClient::setEndpoint(const QString& host, quint16 port)
 
 void RigClient::setPollInterval(int ms)
 {
-    m_pollTimer.setInterval(qBound(100, ms, 60000));
+    ms = qBound(100, ms, 60000);
+    if (ms == m_pollTimer.interval())
+        return;
+    m_pollTimer.setInterval(ms);
+    // The default silence timeout follows the interval. Re-arm it now, or a
+    // longer interval trips the watchdog between two good polls.
+    if (m_silenceTimer.isActive())
+        armSilenceTimer();
 }
 
 void RigClient::start()
 {
     m_enabled = true;
+    m_answer = Answer::Unknown;
+    armSilenceTimer();
     connectNow();
 }
 
@@ -55,9 +106,16 @@ void RigClient::stop()
     m_enabled = false;
     m_pollTimer.stop();
     m_reconnectTimer.stop();
+    m_silenceTimer.stop();
     m_socket.abort();
     m_expect.clear();
+    const bool was = m_answer == Answer::Yes;
+    m_answer = Answer::Unknown;
+    m_frequencyHz = 0;
+    m_mode.clear();
     emit stateChanged(false, tr("Rig polling disabled"));
+    if (was)
+        emit answeringChanged(false);
 }
 
 void RigClient::reconnectSoon()
@@ -192,7 +250,16 @@ void RigClient::handleLine(const QByteArray& line)
     {
         bool ok = false;
         const qint64 hz = QString::fromLatin1(line).toDouble(&ok);
-        if (ok && hz != m_frequencyHz)
+        if (!ok || hz <= 0)
+            break;
+        // every valid answer keeps the rig alive, changed or not
+        armSilenceTimer();
+        if (m_answer != Answer::Yes)
+        {
+            m_answer = Answer::Yes;
+            emit answeringChanged(true);
+        }
+        if (hz != m_frequencyHz)
         {
             m_frequencyHz = hz;
             emit frequencyChanged(hz);

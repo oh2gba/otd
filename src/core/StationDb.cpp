@@ -399,7 +399,9 @@ StationList StationDb::search(const QString& text, const QStringList& sources, i
                               " OR IFNULL(lang_text,'') LIKE ? ESCAPE '\\'"
                               " OR IFNULL(site_text,'') LIKE ? ESCAPE '\\'"
                               " OR IFNULL(remarks,'') LIKE ? ESCAPE '\\'"
-                              " OR printf('%g', khz) LIKE ? ESCAPE '\\'"
+                              // the frequency as written in the list: all three
+                              // decimals, trailing zeros and point dropped
+                              " OR rtrim(rtrim(printf('%.3f', khz), '0'), '.') LIKE ? ESCAPE '\\'"
                               " OR IFNULL(itu,'') = ? OR IFNULL(itu,'') IN (SELECT code FROM codes"
                               " WHERE kind='country' AND name LIKE ? ESCAPE '\\'))")
                    .arg(w.startsWith(QLatin1Char('!')) ? QStringLiteral("NOT ") : QString());

@@ -67,7 +67,7 @@ int main(int argc, char** argv)
     });
     QObject::connect(&client, &KiwiClient::sMeter, [&](double d) { lastDbm = d; });
     client.tune(kHz, mode);
-    client.open(QUrl(QString::fromLocal8Bit(argv[1])));
+    client.open(QString::fromLocal8Bit(argv[1]));
     QTimer::singleShot(seconds * 1000, [&]() {
         std::printf("audio: %d frames, %lld bytes = %.1f s at %d Hz, last S-meter %.0f dBm\n", frames,
                     static_cast<long long>(bytes), bytes / 2.0 / client.sampleRate(), client.sampleRate(),

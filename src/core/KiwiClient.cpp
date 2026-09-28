@@ -2,6 +2,7 @@
 #include "KiwiClient.h"
 
 #include <QDateTime>
+#include <QWebSocket>
 #include <QtEndian>
 
 #include <algorithm>
@@ -21,6 +22,17 @@ const int kIndexAdjust[16] = {-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 
 constexpr quint8 kFlagCompressed = 0x10;
 constexpr quint8 kFlagStereo = 0x08;
 constexpr quint8 kFlagLittleEndian = 0x80;
+}
+
+// Without a scheme the address is taken as http://, so "host:port" and
+// "IP:port" work: QUrl alone would read "localhost:8073" as a scheme and
+// reject "192.168.1.50:8073".
+QUrl KiwiClient::receiverUrl(const QString& receiver)
+{
+    QString text = receiver.trimmed();
+    if (!text.contains(QLatin1String("://")))
+        text.prepend(QStringLiteral("http://"));
+    return QUrl(text);
 }
 
 QByteArray KiwiClient::Adpcm::decode(const QByteArray& nibbles)
@@ -52,52 +64,118 @@ QByteArray KiwiClient::Adpcm::decode(const QByteArray& nibbles)
 KiwiClient::KiwiClient(QObject* parent)
     : QObject(parent)
 {
-    connect(&m_ws, &QWebSocket::connected, this, &KiwiClient::onConnected);
-    connect(&m_ws, &QWebSocket::disconnected, this, &KiwiClient::onDisconnected);
-    connect(&m_ws, &QWebSocket::textMessageReceived, this, &KiwiClient::onText);
-    connect(&m_ws, &QWebSocket::binaryMessageReceived, this, &KiwiClient::onBinary);
-    connect(&m_ws, &QWebSocket::errorOccurred, this, [this](QAbstractSocket::SocketError) {
-        m_closeReason = m_ws.errorString();
-    });
     m_keepalive.setInterval(1000);
     connect(&m_keepalive, &QTimer::timeout, this, [this]() {
         if (m_open)
             send(QStringLiteral("SET keepalive"));
     });
+    // A host can take the connection and then say nothing, which would
+    // leave the caller on "Connecting ..." for ever. The timer runs from
+    // open() until the receiver's greeting.
+    m_connectTimer.setSingleShot(true);
+    m_connectTimer.setInterval(30000);
+    connect(&m_connectTimer, &QTimer::timeout, this, [this]() {
+        fail(tr("the receiver did not answer"));
+    });
 }
 
-void KiwiClient::open(const QUrl& receiver, const QString& password)
+KiwiClient::~KiwiClient()
 {
-    close();
-    QUrl url = receiver;
-    if (url.scheme().isEmpty())
-        url = QUrl(QStringLiteral("http://") + receiver.toString());
-    m_receiver = url;
-    m_password = password;
-    m_closeReason.clear();
-    m_ready = false;
-    m_adpcm = Adpcm();
+    dropSocket();
+}
 
+QUrl KiwiClient::webSocketUrl(const QString& receiver, qint64 stamp)
+{
+    const QUrl url = receiverUrl(receiver);
+    const bool secure = url.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0;
+    // Without a port: 8073, the KiwiSDR default, which is also where the
+    // proxy.kiwisdr.com hosts (listed without a port) serve the WebSocket;
+    // their port 80 only redirects there, and QWebSocket does not follow
+    // redirects. An https address without a port is taken to sit behind a
+    // TLS front end on 443.
+    int port = url.port();
+    if (port <= 0)
+        port = secure ? 443 : 8073;
     // ws://host:port/kiwi/<timestamp>/SND, as the browser page does
     QUrl ws;
-    ws.setScheme(url.scheme() == QLatin1String("https") ? QStringLiteral("wss") : QStringLiteral("ws"));
+    ws.setScheme(secure ? QStringLiteral("wss") : QStringLiteral("ws"));
     ws.setHost(url.host());
-    ws.setPort(url.port(8073));
-    ws.setPath(QStringLiteral("/kiwi/%1/SND").arg(QDateTime::currentSecsSinceEpoch() & 0xffffffff));
+    ws.setPort(port);
+    ws.setPath(QStringLiteral("/kiwi/%1/SND").arg(stamp & 0xffffffff));
+    return ws;
+}
+
+void KiwiClient::dropSocket()
+{
+    if (!m_ws)
+        return;
+    QWebSocket* ws = m_ws;
+    m_ws = nullptr;
+    ws->disconnect(this);   // whatever it still reports is not for us
+    ws->abort();
+    ws->deleteLater();
+}
+
+void KiwiClient::open(const QString& receiver, const QString& password)
+{
+    close();
+    const int session = ++m_session;
+    m_receiver = receiverUrl(receiver);
+    m_password = password;
+    m_pendingReason.clear();
+    m_ready = false;
+    m_adpcm = Adpcm();
+    m_maxKHz = 30000.0;
+    m_offsetKHz = 0.0;
     m_open = true;
-    emit stateChanged(tr("Connecting to %1 ...").arg(url.host()));
-    m_ws.open(ws);
+
+    if (!m_receiver.isValid() || m_receiver.host().isEmpty())
+    {
+        const QString text = receiver.trimmed();
+        const QString why = text.isEmpty() ? tr("no receiver address given")
+                                           : tr("\"%1\" is not a receiver address").arg(text);
+        m_receiver = QUrl();
+        // Reported once open() has returned, like any other failure, so a
+        // caller that connects to closed() after open() still hears it. A
+        // later open() or close() makes it moot.
+        QTimer::singleShot(0, this, [this, session, why]() {
+            if (session == m_session)
+                fail(why);
+        });
+        return;
+    }
+
+    m_ws = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
+    connect(m_ws, &QWebSocket::connected, this, &KiwiClient::onConnected);
+    connect(m_ws, &QWebSocket::disconnected, this, &KiwiClient::onDisconnected);
+    connect(m_ws, &QWebSocket::textMessageReceived, this, &KiwiClient::onText);
+    connect(m_ws, &QWebSocket::binaryMessageReceived, this, &KiwiClient::onBinary);
+    connect(m_ws, &QWebSocket::errorOccurred, this, &KiwiClient::onSocketError);
+    emit stateChanged(tr("Connecting to %1 ...").arg(m_receiver.host()));
+    m_connectTimer.start();
+    m_ws->open(webSocketUrl(receiver, QDateTime::currentSecsSinceEpoch()));
 }
 
 void KiwiClient::close()
 {
-    if (!m_open)
-        return;
     m_open = false;
     m_ready = false;
     m_keepalive.stop();
-    m_closeReason.clear();
-    m_ws.close();
+    m_connectTimer.stop();
+    dropSocket();
+}
+
+void KiwiClient::setConnectTimeout(int ms)
+{
+    m_connectTimer.setInterval(ms);
+}
+
+void KiwiClient::fail(const QString& reason)
+{
+    if (!m_open)
+        return;   // already over, or closed on request: nothing to report
+    close();
+    emit closed(reason.isEmpty() ? tr("connection closed by the receiver") : reason);
 }
 
 void KiwiClient::tune(double kHz, const QString& mode)
@@ -110,8 +188,8 @@ void KiwiClient::tune(double kHz, const QString& mode)
 
 void KiwiClient::send(const QString& command)
 {
-    if (m_ws.state() == QAbstractSocket::ConnectedState)
-        m_ws.sendTextMessage(command);
+    if (m_ws && m_ws->state() == QAbstractSocket::ConnectedState)
+        m_ws->sendTextMessage(command);
 }
 
 void KiwiClient::onConnected()
@@ -122,14 +200,38 @@ void KiwiClient::onConnected()
     emit stateChanged(tr("Connected to %1, waiting for audio ...").arg(m_receiver.host()));
 }
 
+QString KiwiClient::endReason() const
+{
+    // what the receiver said before it hung up comes first
+    if (!m_pendingReason.isEmpty())
+        return m_pendingReason;
+    // then the socket's own error, such as a refused connection; a plain
+    // hang-up is left to fail()'s general text. ConnectionRefusedError is
+    // 0, so "no error" is UnknownSocketError, not 0.
+    if (m_ws && m_ws->error() != QAbstractSocket::UnknownSocketError
+        && m_ws->error() != QAbstractSocket::RemoteHostClosedError)
+        return m_ws->errorString();
+    return QString();
+}
+
 void KiwiClient::onDisconnected()
 {
-    const bool wanted = !m_open;
-    m_open = false;
-    m_ready = false;
-    m_keepalive.stop();
-    emit closed(wanted ? QString() : (m_closeReason.isEmpty() ? tr("connection closed by the receiver")
-                                                              : m_closeReason));
+    // The receiver hung up, or the connection never came about: Qt reports
+    // a refused connection with disconnected() before errorOccurred(), and
+    // fail() stops listening to the socket, so the error is read here.
+    fail(endReason());
+}
+
+void KiwiClient::onSocketError(QAbstractSocket::SocketError error)
+{
+    // A refused or broken connection does not always end in disconnected().
+    // The error handed over here counts even when the socket's own error()
+    // says nothing, as after a failed WebSocket handshake (an HTTP 404 or a
+    // redirect), where only errorString() tells what happened.
+    QString why = m_pendingReason;
+    if (why.isEmpty() && error != QAbstractSocket::RemoteHostClosedError && m_ws)
+        why = m_ws->errorString();
+    fail(why);
 }
 
 void KiwiClient::onText(const QString& text)
@@ -173,6 +275,7 @@ void KiwiClient::handleMsg(const QString& body)
             send(QStringLiteral("SET compression=1"));
             send(QStringLiteral("SET ident_user=otd"));
             m_ready = true;
+            m_connectTimer.stop();   // it answered: the session is under way
             applyTuning();
             send(QStringLiteral("SET keepalive"));
             emit stateChanged(tr("Listening on %1").arg(m_receiver.host()));
@@ -192,37 +295,35 @@ void KiwiClient::handleMsg(const QString& body)
         }
         else if (name == QLatin1String("too_busy"))
         {
-            m_closeReason = tr("all %1 channels of this receiver are in use").arg(value);
-            close();
-            emit closed(m_closeReason);
+            fail(tr("all %1 channels of this receiver are in use").arg(value));
+            return;
         }
         else if (name == QLatin1String("badp") && value == QLatin1String("1"))
         {
-            m_closeReason = tr("this receiver needs a password");
-            close();
-            emit closed(m_closeReason);
+            // the receiver says this both for a wrong password and when
+            // all channels open without a password are taken
+            fail(tr("the receiver is full, or needs a password"));
+            return;
         }
         else if (name == QLatin1String("badp") && value == QLatin1String("5"))
         {
-            m_closeReason = tr("the receiver allows one connection per address, and one is open already");
-            close();
-            emit closed(m_closeReason);
+            fail(tr("the receiver allows one connection per address, and one is open already"));
+            return;
         }
         else if (name == QLatin1String("down"))
         {
-            m_closeReason = tr("the receiver is down");
-            close();
-            emit closed(m_closeReason);
+            fail(tr("the receiver is down"));
+            return;
         }
         else if (name == QLatin1String("inactivity_timeout") || name == QLatin1String("time_limit"))
         {
-            m_closeReason = tr("the receiver's time limit is up");
+            // the receiver hangs up right after this
+            m_pendingReason = tr("the receiver's time limit is up");
         }
         else if (name == QLatin1String("redirect"))
         {
-            m_closeReason = tr("the receiver redirects to %1").arg(value);
-            close();
-            emit closed(m_closeReason);
+            fail(tr("the receiver redirects to %1").arg(value));
+            return;
         }
     }
 }

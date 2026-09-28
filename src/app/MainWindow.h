@@ -34,6 +34,11 @@ public:
     void screenshotTo(const QString& file, int delayMs = 6000);
     ~MainWindow() override;
 
+    const AppSettings& settings() const { return m_settings; }
+    // What OK in Settings does with the dialog's result. Public so that the
+    // tests can take this path without the modal dialog.
+    void acceptSettings(const AppSettings& updated);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
@@ -46,7 +51,9 @@ private slots:
     void onRigFrequency(qint64 hz);
     void onRigMode(const QString& mode, int passband);
     void onRigState(bool connected, const QString& message);
+    void onRigAnswering(bool answering);
     void onFrequencyEdited();
+    QString rigSilentText() const;   // "Rig not answering (host:port)"
     void onFollowToggled(bool follow);
     void onToleranceChanged(double kHz);
     void onOnAirOnlyToggled(bool on);
@@ -77,6 +84,8 @@ private:
     void centreOnMarker();
     void headerContextMenu(const QPoint& pos);
     void saveColumns();
+    void scheduleSave();
+    QTimer* m_saveTimer = nullptr;
     void scaleColumns(int width);
     void fitColumns();
     bool m_columnsFitted = false;
@@ -124,7 +133,6 @@ private:
     void updateScale();
     void tuneTo(double kHz, const QString& mode, qint64 flashId = 0);
     QLabel* m_rigText = nullptr;
-    QTimer* m_rigAwayTimer = nullptr;
     bool m_manualUpdateCheck = false;
     QLabel* m_sdrStatus = nullptr;
     QLabel* m_dbStatus = nullptr;

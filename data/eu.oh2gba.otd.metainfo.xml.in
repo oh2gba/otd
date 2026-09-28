@@ -37,6 +37,18 @@
   <categories><category>HamRadio</category><category>Network</category></categories>
   <keywords><keyword>shortwave</keyword><keyword>SWL</keyword><keyword>rigctld</keyword><keyword>EiBi</keyword></keywords>
   <releases>
+    <release version="1.6.3" date="2026-09-28">
+      <description>
+        <ul>
+          <li>Rig status: "Rig not answering" no longer appears while the rig sits on one frequency, and a switched-off radio behind a running rigctld counts as not answering</li>
+          <li>KiwiSDR player: the reason a receiver stops is shown (busy, password, time limit, refused connection), switching receivers no longer stops the new one, and a receiver that never answers is given up after 30 seconds</li>
+          <li>KiwiSDR player: the list keeps naming the receiver you hear while you search or the directory changes, own addresses may be plain host names, and data modes such as PKTUSB play as USB</li>
+          <li>The receiver directory is fetched at most once a week, and only when the player is used</li>
+          <li>OK in Settings keeps the volume and the Follow rig choice; the frequency field takes a decimal point or comma; the column menu opens once</li>
+          <li>Search finds frequencies with decimals such as 13553.125</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.2" date="2026-09-27">
       <description>
         <ul>
