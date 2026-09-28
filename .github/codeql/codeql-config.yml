@@ -1,0 +1,5 @@
+name: otd
+
+# Vendored code is not analysed; only otd's own sources and scripts are.
+paths-ignore:
+  - third_party
