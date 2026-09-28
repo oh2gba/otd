@@ -1,0 +1,345 @@
+{
+ "about": "ITU-R CIRAF zones (the target areas HFCC gives as numbers). Areas as in the ITU zone list compiled by UDXF (Country-codes.pdf, 2020); the short names are otd's own.",
+ "zones": {
+  "1": {
+   "name": "Alaska",
+   "area": "Alaska"
+  },
+  "2": {
+   "name": "Western Canada",
+   "area": "Western Canada"
+  },
+  "3": {
+   "name": "Central Canada west",
+   "area": "Central Canada west"
+  },
+  "4": {
+   "name": "Central Canada east",
+   "area": "Central Canada east, Baffin Island"
+  },
+  "5": {
+   "name": "Greenland",
+   "area": "Greenland"
+  },
+  "6": {
+   "name": "Western USA",
+   "area": "Western USA"
+  },
+  "7": {
+   "name": "Central USA",
+   "area": "Central USA"
+  },
+  "8": {
+   "name": "Eastern USA",
+   "area": "Eastern USA"
+  },
+  "9": {
+   "name": "Eastern Canada",
+   "area": "Eastern Canada"
+  },
+  "10": {
+   "name": "Mexico",
+   "area": "Belize, Guatemala, Mexico"
+  },
+  "11": {
+   "name": "Central America, Caribbean",
+   "area": "Antilles, Costa Rica, Cuba, Dominican Republic, El Salvador, Haiti, Honduras, Jamaica, Nicaragua, Panama, Puerto Rico, West Indies"
+  },
+  "12": {
+   "name": "Northern South America",
+   "area": "Colombia, Ecuador, French Guiana, Guyana, northern Bolivia, northwestern Brazil, Peru, Suriname, Venezuela"
+  },
+  "13": {
+   "name": "Northeastern Brazil",
+   "area": "Northeastern Brazil"
+  },
+  "14": {
+   "name": "Paraguay, Uruguay, northern Argentina",
+   "area": "Northern Argentina, northern Chile, Paraguay, southern Bolivia, Uruguay"
+  },
+  "15": {
+   "name": "Southeastern Brazil",
+   "area": "Southeastern Brazil"
+  },
+  "16": {
+   "name": "Southern Argentina and Chile",
+   "area": "Southern Argentina, southern Chile, Falkland Islands"
+  },
+  "17": {
+   "name": "Iceland",
+   "area": "Iceland"
+  },
+  "18": {
+   "name": "Nordic countries",
+   "area": "Denmark, Finland, Norway, Sweden"
+  },
+  "19": {
+   "name": "Western Russia northwest",
+   "area": "Western Russia northwest"
+  },
+  "20": {
+   "name": "Western Russia north",
+   "area": "Western Russia north"
+  },
+  "21": {
+   "name": "Central Russia northwest",
+   "area": "Central Russia northwest"
+  },
+  "22": {
+   "name": "Central Russia north",
+   "area": "Central Russia north"
+  },
+  "23": {
+   "name": "Central Russia east",
+   "area": "Central Russia east"
+  },
+  "24": {
+   "name": "Eastern Russia northwest",
+   "area": "Eastern Russia northwest"
+  },
+  "25": {
+   "name": "Eastern Russia north",
+   "area": "Eastern Russia north"
+  },
+  "26": {
+   "name": "Eastern Russia northeast",
+   "area": "Eastern Russia northeast"
+  },
+  "27": {
+   "name": "Western Europe",
+   "area": "Belgium, France, Great Britain, Ireland, Monaco, Netherlands"
+  },
+  "28": {
+   "name": "Central Europe",
+   "area": "Albania, Austria, Bosnia and Herzegovina, Bulgaria, Croatia, Czech Republic, Germany, Greece, Hungary, Italy, Luxembourg, North Macedonia, Malta, Poland, Romania, Serbia, Montenegro, Slovakia, Slovenia, Switzerland, Vatican"
+  },
+  "29": {
+   "name": "Eastern Europe, Caucasus",
+   "area": "Armenia, Azerbaijan, Belarus, Estonia, Georgia, Latvia, Lithuania, Moldova, Ukraine, western Russia"
+  },
+  "30": {
+   "name": "Central Asia west",
+   "area": "Tajikistan, Turkmenistan, Uzbekistan, western Kazakhstan, western Kyrgyzstan, western Russia southeast"
+  },
+  "31": {
+   "name": "Central Asia east",
+   "area": "Central Russia southwest, eastern Kazakhstan, eastern Kyrgyzstan"
+  },
+  "32": {
+   "name": "Southern Siberia, western Mongolia",
+   "area": "Central Russia south, western Mongolia"
+  },
+  "33": {
+   "name": "Southeastern Siberia, eastern Mongolia",
+   "area": "Central Russia southeast, eastern Mongolia"
+  },
+  "34": {
+   "name": "Russian Far East, Sakhalin",
+   "area": "Eastern Russia southwest: Sakhalin, Sikhote Alin"
+  },
+  "35": {
+   "name": "Kamchatka",
+   "area": "Eastern Russia east: Kamchatka"
+  },
+  "36": {
+   "name": "Azores, Canaries, Madeira",
+   "area": "Azores, Canary Islands, Madeira"
+  },
+  "37": {
+   "name": "Iberia, Northwest Africa",
+   "area": "Algeria, Andorra, Morocco, Portugal, Spain, Tunisia"
+  },
+  "38": {
+   "name": "Egypt, Libya",
+   "area": "Egypt, Libya"
+  },
+  "39": {
+   "name": "Middle East",
+   "area": "Bahrain, Cyprus, Iraq, Israel, Jordan, Kuwait, Lebanon, Oman, Qatar, Saudi Arabia, Syria, Turkey, United Arab Emirates, Yemen"
+  },
+  "40": {
+   "name": "Iran, Afghanistan",
+   "area": "Afghanistan, Iran"
+  },
+  "41": {
+   "name": "South Asia",
+   "area": "Bangladesh, Bhutan, India, Nepal, Pakistan"
+  },
+  "42": {
+   "name": "Western China",
+   "area": "Western China"
+  },
+  "43": {
+   "name": "Central China",
+   "area": "Central China"
+  },
+  "44": {
+   "name": "Eastern China, Korea, Taiwan",
+   "area": "Eastern China, Hong Kong, Macao, North Korea, South Korea, Taiwan"
+  },
+  "45": {
+   "name": "Japan",
+   "area": "Japan"
+  },
+  "46": {
+   "name": "West Africa",
+   "area": "Benin, Burkina Faso, Cape Verde, Côte d'Ivoire, Gambia, Ghana, Guinea, Guinea-Bissau, Liberia, Mali, Mauritania, Niger, Nigeria, Senegal, Sierra Leone, Togo, Cameroon, Chad, Central African Republic, Equatorial Guinea, Gabon, São Tomé"
+  },
+  "47": {
+   "name": "Western Sudan",
+   "area": "Western Sudan"
+  },
+  "48": {
+   "name": "East Africa",
+   "area": "Burundi, Eritrea, Ethiopia, eastern Sudan, Kenya, Somalia, Uganda"
+  },
+  "49": {
+   "name": "Southeast Asia mainland",
+   "area": "Cambodia, Laos, Myanmar, Vietnam"
+  },
+  "50": {
+   "name": "Philippines",
+   "area": "Philippines"
+  },
+  "51": {
+   "name": "Indonesia, Papua New Guinea",
+   "area": "Malaysia, Papua New Guinea, western Indonesia"
+  },
+  "52": {
+   "name": "Central Africa",
+   "area": "Angola, Burundi, Congo, Gabon, DR Congo"
+  },
+  "53": {
+   "name": "Southeast Africa, Madagascar",
+   "area": "Madagascar, Malawi, Mozambique, Seychelles, Zambia, Zimbabwe"
+  },
+  "54": {
+   "name": "Malaysia, Singapore, western Indonesia",
+   "area": "Malaysia, Singapore, western Indonesia"
+  },
+  "55": {
+   "name": "Northeastern Australia",
+   "area": "Northeastern Australia"
+  },
+  "56": {
+   "name": "New Caledonia, Fiji, Vanuatu",
+   "area": "New Caledonia, Fiji, Vanuatu"
+  },
+  "57": {
+   "name": "Southern Africa",
+   "area": "Botswana, Eswatini, Lesotho, Namibia, South Africa"
+  },
+  "58": {
+   "name": "Western Australia",
+   "area": "Western Australia"
+  },
+  "59": {
+   "name": "Southeastern Australia",
+   "area": "Southeastern Australia"
+  },
+  "60": {
+   "name": "New Zealand",
+   "area": "New Zealand"
+  },
+  "61": {
+   "name": "Hawaii",
+   "area": "Hawaii"
+  },
+  "62": {
+   "name": "Samoa, Phoenix Islands",
+   "area": "Phoenix Islands, Samoa"
+  },
+  "63": {
+   "name": "Cook Islands, Polynesia",
+   "area": "Cook Islands, Polynesia"
+  },
+  "64": {
+   "name": "Guam, Palau, Marianas",
+   "area": "Guam, Palau, Saipan"
+  },
+  "65": {
+   "name": "Kiribati, Marshall Islands",
+   "area": "Kiribati, Marshall Islands"
+  },
+  "66": {
+   "name": "Ascension, St Helena",
+   "area": "Central Atlantic south: Ascension, St Helena"
+  },
+  "67": {
+   "name": "Antarctica",
+   "area": "Antarctica"
+  },
+  "68": {
+   "name": "Southwestern Indian Ocean",
+   "area": "Southwestern Indian Ocean: Kerguelen"
+  },
+  "69": {
+   "name": "Antarctica",
+   "area": "Antarctica"
+  },
+  "70": {
+   "name": "Antarctica",
+   "area": "Antarctica"
+  },
+  "71": {
+   "name": "Antarctica",
+   "area": "Antarctica"
+  },
+  "72": {
+   "name": "Antarctica",
+   "area": "Antarctica"
+  },
+  "73": {
+   "name": "Antarctica",
+   "area": "Antarctica"
+  },
+  "74": {
+   "name": "South Pole",
+   "area": "South Pole"
+  },
+  "75": {
+   "name": "North Pole",
+   "area": "North Pole"
+  },
+  "76": {
+   "name": "Northeastern Pacific",
+   "area": "Northeastern Pacific"
+  },
+  "77": {
+   "name": "Central Pacific northeast",
+   "area": "Central Pacific northeast"
+  },
+  "78": {
+   "name": "Central Pacific southeast",
+   "area": "Central Pacific southeast"
+  },
+  "79": {
+   "name": "Central Indian Ocean",
+   "area": "Central Indian Ocean"
+  },
+  "80": {
+   "name": "North Atlantic",
+   "area": "Northern Atlantic"
+  },
+  "81": {
+   "name": "Central Atlantic",
+   "area": "Central Atlantic"
+  },
+  "82": {
+   "name": "Northwestern Pacific",
+   "area": "Northwestern Pacific"
+  },
+  "83": {
+   "name": "South Pacific",
+   "area": "Southern Pacific"
+  },
+  "84": {
+   "name": "South Atlantic",
+   "area": "Southern Atlantic"
+  },
+  "85": {
+   "name": "Southeastern Indian Ocean",
+   "area": "Southeastern Indian Ocean"
+  }
+ }
+}

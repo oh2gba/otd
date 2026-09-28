@@ -21,6 +21,9 @@ namespace Schedule
     // Full evaluation: time window (with midnight wrap), validity dates,
     // season-only flags and the Days column.
     OnAir status(const StationEntry& entry, const QDateTime& utc);
+    // weekdays: the entry's days in EiBi's notation (StationDb::weekdays
+    // turns Aoki's own numbering into it)
+    OnAir status(const StationEntry& entry, const QDateTime& utc, const QString& weekdays);
 
     QString statusText(OnAir s);
     QString timeWindow(const StationEntry& entry);   // "0500-0600" / "24h"

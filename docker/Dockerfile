@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         qt6-base-dev qt6-base-dev-tools libqt6sql6-sqlite \
         qt6-websockets-dev qt6-multimedia-dev \
         libgl1-mesa-dev \
+        pulseaudio pulseaudio-utils \
     && rm -rf /var/lib/apt/lists/*
+# pulseaudio: a sound server for the tests only, so that the KiwiSDR player
+# is tested against a real (silent) sound device
 
 WORKDIR /src

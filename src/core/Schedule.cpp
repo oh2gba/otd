@@ -158,7 +158,13 @@ Schedule::OnAir Schedule::dayStatus(const QString& daysIn, const QDate& date)
 
 Schedule::OnAir Schedule::status(const StationEntry& e, const QDateTime& utcIn)
 {
-    if (e.persistence % 90 == 8)
+    return status(e, utcIn, e.days);
+}
+
+Schedule::OnAir Schedule::status(const StationEntry& e, const QDateTime& utcIn, const QString& weekdays)
+{
+    // EiBi's persistence 8, Aoki's "x" mark: listed, but off air
+    if (e.persistence % 90 == 8 || (e.source == QLatin1String("aoki") && e.flag == QLatin1String("x")))
         return OnAir::Inactive;
 
     const QDateTime utc = utcIn.toUTC();
@@ -188,6 +194,16 @@ Schedule::OnAir Schedule::status(const StationEntry& e, const QDateTime& utcIn)
             return OnAir::No;
     }
 
+    // Validity dates with the year, DDMMYY (HFCC)
+    if (e.startDate.size() == 6 && e.stopDate.size() == 6)
+    {
+        auto date = [](const QString& d) {
+            return QDate(2000 + d.mid(4, 2).toInt(), d.mid(2, 2).toInt(), d.left(2).toInt());
+        };
+        const QDate from = date(e.startDate), to = date(e.stopDate);
+        if (from.isValid() && to.isValid() && (day < from || day > to))
+            return OnAir::No;
+    }
     // Validity dates, DDMM
     if (e.startDate.size() == 4 && e.stopDate.size() == 4)
     {
@@ -200,7 +216,7 @@ Schedule::OnAir Schedule::status(const StationEntry& e, const QDateTime& utcIn)
             return OnAir::No;
     }
 
-    return dayStatus(e.days, day);
+    return dayStatus(weekdays, day);
 }
 
 QString Schedule::statusText(OnAir s)
@@ -217,7 +233,7 @@ QString Schedule::statusText(OnAir s)
 
 QString Schedule::timeWindow(const StationEntry& e)
 {
-    if (e.startMin == 0 && e.endMin >= 1440)
+    if ((e.startMin == 0 && e.endMin >= 1440) || e.startMin == e.endMin)   // 0000-2400, 0000-0000
         return QStringLiteral("24h");
     return QStringLiteral("%1%2-%3%4")
         .arg(e.startMin / 60, 2, 10, QChar('0')).arg(e.startMin % 60, 2, 10, QChar('0'))

@@ -3,23 +3,36 @@
 // sessions against a small fake KiwiSDR on localhost that speaks the same
 // messages a real receiver sends.
 #include "core/KiwiClient.h"
+#include "core/Logging.h"
+#include "core/PcmQueue.h"
+#include "core/PcmResampler.h"
 
 #include <QPointer>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTcpServer>
+#include <QTcpSocket>
+#include <QTemporaryDir>
 #include <QWebSocket>
 #include <QWebSocketServer>
 #include <QtEndian>
 #include <QtTest>
 
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+
 namespace
 {
 // A fake receiver. Each connection is scripted by the test through the
-// hooks; everything the client sends is recorded.
+// hooks; everything the client sends is recorded. Like a KiwiSDR it serves
+// its web page on the same port as the audio: a plain request gets a small
+// answer and is noted in pages, a WebSocket handshake goes to the server.
 class FakeKiwi : public QObject
 {
 public:
     QStringList received;              // text commands from the client
+    QStringList pages;                 // paths fetched over plain HTTP
     QList<QWebSocket*> peers;
     QString lastPath;                  // the path the client asked for
     bool greet = true;                 // answer auth with audio_rate/sample_rate
@@ -28,6 +41,10 @@ public:
     FakeKiwi()
         : server(QStringLiteral("fake kiwi"), QWebSocketServer::NonSecureMode)
     {
+        connect(&front, &QTcpServer::newConnection, this, [this]() {
+            while (QTcpSocket* s = front.nextPendingConnection())
+                connect(s, &QTcpSocket::readyRead, this, [this, s]() { route(s); });
+        });
         connect(&server, &QWebSocketServer::newConnection, this, [this]() {
             while (QWebSocket* ws = server.nextPendingConnection())
             {
@@ -48,9 +65,10 @@ public:
                 });
             }
         });
-        server.listen(QHostAddress::LocalHost);
+        front.listen(QHostAddress::LocalHost);
     }
-    QString address() const { return QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()); }
+    quint16 port() const { return front.serverPort(); }
+    QString address() const { return QStringLiteral("http://127.0.0.1:%1").arg(front.serverPort()); }
     static void sendMsg(QWebSocket* ws, const QByteArray& body)
     {
         ws->sendBinaryMessage(QByteArray("MSG ") + body);
@@ -83,7 +101,29 @@ public:
         return QString();
     }
 
+    QTcpServer front;
     QWebSocketServer server;
+
+private:
+    // the first bytes tell a page request from a handshake
+    void route(QTcpSocket* s)
+    {
+        const QByteArray head = s->peek(4096);
+        if (!head.contains("\r\n\r\n"))
+            return;   // not all of the request yet
+        s->disconnect(this);
+        if (head.contains("Upgrade: websocket"))
+        {
+            server.handleConnection(s);
+            return;
+        }
+        const QByteArray path = head.split(' ').value(1);
+        pages << QString::fromLatin1(path);
+        s->readAll();
+        const QByteArray body = path == "/" ? QByteArray("<html>kiwi</html>") : QByteArray("PNG");
+        s->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+        s->disconnectFromHost();
+    }
 };
 }
 
@@ -204,6 +244,20 @@ private slots:
         for (const QList<QVariant>& s : state)
             said = said || s.first().toString().contains(QLatin1String("outside"));
         QVERIFY(said);
+
+        // back in range: the complaint is replaced by the usual text, once
+        state.clear();
+        client.tune(7125.0, QStringLiteral("USB"));
+        QTRY_VERIFY_WITH_TIMEOUT(kiwi.count(QStringLiteral("SET mod=")) == 1, 3000);
+        QCOMPARE(state.count(), 1);
+        QVERIFY2(state.first().first().toString().startsWith(QLatin1String("Listening on")),
+                 qPrintable(state.first().first().toString()));
+        client.tune(7130.0, QStringLiteral("USB"));   // still in range: nothing new to say
+        QTRY_VERIFY_WITH_TIMEOUT(kiwi.count(QStringLiteral("SET mod=")) == 2, 3000);
+        QCOMPARE(state.count(), 1);
+        client.tune(145000.0, QStringLiteral("FM"));  // out again: said again
+        QTRY_COMPARE_WITH_TIMEOUT(state.count(), 2, 3000);
+        QVERIFY(state.last().first().toString().contains(QLatin1String("outside")));
         client.close();
     }
 
@@ -322,9 +376,9 @@ private slots:
         QTest::addColumn<QByteArray>("reply");
         QTest::addColumn<QString>("expected");
         QTest::newRow("404") << QByteArray("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n") << QStringLiteral("404");
-        QTest::newRow("301") << QByteArray("HTTP/1.1 301 Moved Permanently\r\nLocation: http://example.org:8073/\r\n"
-                                           "Content-Length: 0\r\nConnection: close\r\n\r\n")
-                             << QStringLiteral("301");
+        QTest::newRow("301, nowhere") << QByteArray("HTTP/1.1 301 Moved Permanently\r\n"
+                                                    "Content-Length: 0\r\nConnection: close\r\n\r\n")
+                                      << QStringLiteral("301");
     }
     void handshakeRejectedIsReported()
     {
@@ -348,6 +402,52 @@ private slots:
         const QString reason = closed.first().first().toString();
         QVERIFY2(reason.contains(expected), qPrintable(reason));
         QVERIFY(!client.isOpen());
+    }
+
+    // too_busy once the session is under way is the receiver's limit on
+    // programs other than its web page (decided about ten seconds in), not
+    // a full receiver: said so, with the number when there is one.
+    void apiLimitIsToldApart_data()
+    {
+        QTest::addColumn<QByteArray>("msg");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("no programs allowed") << QByteArray("too_busy=0") << QStringLiteral("only its own web page");
+        QTest::newRow("program slots taken") << QByteArray("too_busy=2") << QStringLiteral("2 connections from programs");
+    }
+    void apiLimitIsToldApart()
+    {
+        QFETCH(QByteArray, msg);
+        QFETCH(QString, expected);
+        FakeKiwi kiwi;
+        KiwiClient client;
+        QSignalSpy closed(&client, &KiwiClient::closed);
+        client.open(kiwi.address());
+        QTRY_VERIFY_WITH_TIMEOUT(client.isReady(), 5000);
+        FakeKiwi::sendMsg(kiwi.peers.first(), msg);
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 5000);
+        const QString reason = closed.first().first().toString();
+        QVERIFY2(reason.contains(expected), qPrintable(reason));
+        QVERIFY(!reason.contains(QLatin1String("channels of this receiver")));
+        QVERIFY(!client.isOpen());
+    }
+
+    // Once connected, the client fetches the receiver's page and two of its
+    // icons, as a visitor's browser does: the receiver counts those and
+    // otherwise takes the client for an automated program after ten seconds.
+    void visitsThePageLikeABrowser()
+    {
+        FakeKiwi kiwi;
+        KiwiClient client;
+        client.open(kiwi.address());
+        QTRY_VERIFY_WITH_TIMEOUT(client.isReady(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(kiwi.pages.size(), 3, 5000);
+        QStringList pages = kiwi.pages;
+        pages.sort();
+        QCOMPARE(pages, (QStringList{"/", "/gfx/openwebrx-bottom-arrow-hide.png", "/gfx/openwebrx-bottom-arrow-show.png"}));
+        QTest::qWait(300);
+        QCOMPARE(kiwi.pages.size(), 3);   // once, not again and again
+        QVERIFY(client.isOpen());
+        client.close();
     }
 
     // close() on request is silent: no closed() for something the caller did.
@@ -440,7 +540,7 @@ private slots:
         FakeKiwi kiwi;
         KiwiClient client;
         QSignalSpy closed(&client, &KiwiClient::closed);
-        const QString address = form.contains(QLatin1String("%1")) ? form.arg(kiwi.server.serverPort()) : form;
+        const QString address = form.contains(QLatin1String("%1")) ? form.arg(kiwi.port()) : form;
         client.open(address);
         if (usable)
         {
@@ -621,6 +721,274 @@ private slots:
         const int before = kiwi.count(QStringLiteral("SET keepalive"));
         QTest::qWait(1500);
         QCOMPARE(kiwi.count(QStringLiteral("SET keepalive")), before);
+    }
+
+    // The receiver's 12 kHz mono for a device that takes only its own
+    // format (Windows without Media Foundation: 48 kHz stereo float or so).
+    void resamplerForTheSoundDevice()
+    {
+        auto pcm = [](const QList<int>& samples) {
+            QByteArray b;
+            for (int v : samples)
+            {
+                uchar le[2];
+                qToLittleEndian<qint16>(qint16(v), le);
+                b.append(reinterpret_cast<const char*>(le), 2);
+            }
+            return b;
+        };
+        auto floats = [](const QByteArray& b) {
+            QList<float> out;
+            for (int i = 0; i + 3 < b.size(); i += 4)
+            {
+                float f;
+                std::memcpy(&f, b.constData() + i, 4);
+                out << f;
+            }
+            return out;
+        };
+        auto shorts = [](const QByteArray& b) {
+            QList<qint16> out;
+            for (int i = 0; i + 1 < b.size(); i += 2)
+            {
+                qint16 v;
+                std::memcpy(&v, b.constData() + i, 2);   // the machine's own order, as Qt takes it
+                out << v;
+            }
+            return out;
+        };
+
+        // four times the rate, both channels: the steps in between filled in
+        PcmResampler up(12000, 48000, 2, PcmResampler::Format::Float);
+        QCOMPARE(up.bytesPerFrame(), 8);
+        const QList<float> f = floats(up.convert(pcm({0, 400, 800})));
+        QCOMPARE(f.size(), 8 * 2);   // 8 frames so far; the last sample waits for the next block
+        const QList<float> expect = {0, 100, 200, 300, 400, 500, 600, 700};
+        for (int i = 0; i < expect.size(); ++i)
+        {
+            QCOMPARE(f[2 * i], expect[i] / 32768.0f);
+            QCOMPARE(f[2 * i + 1], expect[i] / 32768.0f);   // the same on both sides
+        }
+        // the next block goes on where this one stopped, no jump
+        const QList<float> g = floats(up.convert(pcm({1200})));
+        QCOMPARE(g.size(), 4 * 2);
+        QCOMPARE(g[0], 800 / 32768.0f);
+        QCOMPARE(g[6], 1100 / 32768.0f);
+
+        // blocks of any size give the same sound as one block
+        QList<int> tone;
+        for (int i = 0; i < 997; ++i)
+            tone << int(10000 * std::sin(i * 0.3));
+        PcmResampler whole(12000, 44100, 1, PcmResampler::Format::Int16);
+        PcmResampler pieces(12000, 44100, 1, PcmResampler::Format::Int16);
+        const QByteArray all = whole.convert(pcm(tone));
+        QByteArray parts;
+        for (int at = 0, n = 1; at < tone.size(); at += n, n = n % 37 + 3)
+            parts += pieces.convert(pcm(tone.mid(at, n)));
+        QCOMPARE(parts, all);
+        QVERIFY(qAbs(all.size() / 2 - int(996 * 44100.0 / 12000)) <= 1);
+
+        // downwards: each output sample is the average of the ones it covers
+        PcmResampler down(12000, 6000, 1, PcmResampler::Format::Int16);
+        QCOMPARE(shorts(down.convert(pcm({0, 10, 20, 30, 40, 50, 60}))), (QList<qint16>{5, 25, 45}));
+        QCOMPARE(shorts(down.convert(pcm({70}))), QList<qint16>{65});   // 60 waited for 70
+        PcmResampler down15(12000, 8000, 1, PcmResampler::Format::Int16);
+        QCOMPARE(shorts(down15.convert(pcm({100, 200, 300, 400, 500, 600}))), (QList<qint16>{100, 250, 400, 550}));
+
+        // a surround device: left and right get the sound, the rest silence
+        PcmResampler six(12000, 12000, 6, PcmResampler::Format::Int16);
+        QCOMPARE(shorts(six.convert(pcm({-7, 9, 11}))), (QList<qint16>{-7, -7, 0, 0, 0, 0, 9, 9, 0, 0, 0, 0}));
+
+        // same rate, other sample formats
+        PcmResampler i32(12000, 12000, 1, PcmResampler::Format::Int32);
+        const QByteArray w = i32.convert(pcm({-2, 3, 5}));
+        QCOMPARE(w.size(), 8);
+        qint32 v0, v1;
+        std::memcpy(&v0, w.constData(), 4);
+        std::memcpy(&v1, w.constData() + 4, 4);
+        QCOMPARE(v0, -2 * 65536);
+        QCOMPARE(v1, 3 * 65536);
+        PcmResampler u8(12000, 12000, 1, PcmResampler::Format::UInt8);
+        const QByteArray b = u8.convert(pcm({-32768, 0, 32767, 0}));
+        QCOMPARE(b.size(), 3);
+        QCOMPARE(quint8(b[0]), quint8(0));
+        QCOMPARE(quint8(b[1]), quint8(128));
+        QCOMPARE(quint8(b[2]), quint8(255));
+        QVERIFY(u8.convert(QByteArray()).isEmpty());
+    }
+
+    // The queue between the receiver and the sound device: nothing until a
+    // little has collected, then whatever it has (the device's own buffer
+    // rides out the gaps), told with readyRead() each time; never more than
+    // three seconds; after a long stall it collects afresh.
+    void pcmQueueFeedsTheSink()
+    {
+        PcmQueue q(1000);   // 1000 bytes a second: 300 pre-roll, 3000 at most
+        QSignalSpy ready(&q, &QIODevice::readyRead);
+        QVERIFY(q.isOpen() && q.isSequential());
+        QCOMPARE(q.bytesAvailable(), 0);
+        char buf[400];
+        QCOMPARE(q.read(buf, 100), 100);   // nothing yet: silence, never a read of nothing
+        QVERIFY(std::all_of(buf, buf + 100, [](char c) { return c == 0; }));
+
+        q.push(QByteArray(200, 'a'));
+        QCOMPARE(ready.count(), 0);       // below the pre-roll: not offered yet
+        QCOMPARE(q.bytesAvailable(), 0);
+        QCOMPARE(q.read(buf, 100), 100);  // still silence, the data kept
+        QVERIFY(std::all_of(buf, buf + 100, [](char c) { return c == 0; }));
+        QCOMPARE(q.buffered(), 200);
+
+        q.push(QByteArray(200, 'b'));
+        QCOMPARE(ready.count(), 1);       // primed: the sink is told
+        QCOMPARE(q.bytesAvailable(), 400);
+        QCOMPARE(q.read(buf, 300), 300);  // the data, oldest first
+        QVERIFY(std::all_of(buf, buf + 200, [](char c) { return c == 'a'; }));
+        QVERIFY(std::all_of(buf + 200, buf + 300, [](char c) { return c == 'b'; }));
+        QCOMPARE(q.read(buf, 400), 400);  // the rest, then silence for a sink that asks for more
+        QVERIFY(std::all_of(buf, buf + 100, [](char c) { return c == 'b'; }));
+        QVERIFY(std::all_of(buf + 100, buf + 400, [](char c) { return c == 0; }));
+        QCOMPARE(q.buffered(), 0);
+        QCOMPARE(q.bytesAvailable(), 0);  // a sink that asks first is told: nothing
+        QCOMPARE(q.read(buf, 100), 100);  // one that just asks gets silence, and stays running
+        q.push(QByteArray(50, 'c'));      // the usual gap between two bursts: goes on at once
+        QCOMPARE(ready.count(), 2);
+        QCOMPARE(q.bytesAvailable(), 50);
+        QCOMPARE(q.read(buf, 100), 100);
+        QVERIFY(std::all_of(buf, buf + 50, [](char c) { return c == 'c'; }));
+
+        QTest::qWait(1600);               // a long stall: collects afresh
+        q.push(QByteArray(100, 'd'));
+        QCOMPARE(ready.count(), 2);
+        QCOMPARE(q.bytesAvailable(), 0);
+        QCOMPARE(q.read(buf, 100), 100);  // silence meanwhile, the data kept
+        QCOMPARE(q.buffered(), 100);
+        q.push(QByteArray(250, 'd'));
+        QCOMPARE(ready.count(), 3);
+        QCOMPARE(q.bytesAvailable(), 350);
+
+        q.push(QByteArray(5000, 'e'));    // far ahead: the oldest goes
+        QCOMPARE(q.buffered(), 3000);
+        QCOMPARE(q.read(buf, 10), 10);
+        QVERIFY(std::all_of(buf, buf + 10, [](char c) { return c == 'e'; }));
+        q.push(QByteArray());             // nothing arrived: nothing said
+        QCOMPARE(ready.count(), 4);
+
+        PcmQueue u8(1000, char(0x80));    // unsigned 8-bit: silence is 0x80
+        u8.push(QByteArray(300, 'x'));
+        QCOMPARE(u8.read(buf, 304), 304);
+        QVERIFY(std::all_of(buf + 300, buf + 304, [](char c) { return quint8(c) == 0x80; }));
+    }
+
+    // --log: what the program reports lands in the file, with time and
+    // category, the detailed categories switched on.
+    void logFileGetsEverything()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("otd.log"));
+        QVERIFY(Logging::toFile(path));
+        QLoggingCategory kiwi("otd.kiwi");
+        qCDebug(kiwi) << "hello from the test" << 42;
+        qWarning("a warning too");
+        qInstallMessageHandler(nullptr);   // back to normal for the other tests
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString text = QString::fromUtf8(f.readAll());
+        QVERIFY2(text.contains(QLatin1String("otd.kiwi debug: hello from the test 42")), qPrintable(text));
+        QVERIFY2(text.contains(QLatin1String("default warning: a warning too")), qPrintable(text));
+        QVERIFY(text.contains(QLatin1String("log started")));
+        QVERIFY2(QRegularExpression(QStringLiteral("^\\d\\d:\\d\\d:\\d\\d\\.\\d\\d\\d ")).match(text).hasMatch(), qPrintable(text.left(40)));
+        QVERIFY(!Logging::toFile(dir.filePath(QStringLiteral("no/such/dir/x.log"))));
+    }
+
+    // The proxy.kiwisdr.com hosts answer the handshake with a redirect to
+    // the receiver's real address (another host, port 80). QWebSocket
+    // cannot follow it, so the client asks where it goes and connects there,
+    // with its own path.
+    void redirectedProxyIsFollowed()
+    {
+        FakeKiwi kiwi;
+        // two hops, as the real proxies do: proxy -> proxy2 (port 80) -> proxy2:8073
+        QTcpServer proxy, hop;
+        QVERIFY(proxy.listen(QHostAddress::LocalHost) && hop.listen(QHostAddress::LocalHost));
+        int hits = 0;
+        auto redirectTo = [&hits](QTcpServer& server, const QByteArray& location) {
+            connect(&server, &QTcpServer::newConnection, &server, [&server, location, &hits]() {
+                while (QTcpSocket* s = server.nextPendingConnection())
+                    connect(s, &QTcpSocket::readyRead, s, [s, location, &hits]() {
+                        s->readAll();
+                        ++hits;
+                        s->write("HTTP/1.0 307 Temporary Redirect\r\nLocation: " + location
+                                 + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        s->disconnectFromHost();
+                    });
+            });
+        };
+        redirectTo(proxy, "http://127.0.0.1:" + QByteArray::number(hop.serverPort()) + "/kiwi/0/snd");
+        redirectTo(hop, "http://127.0.0.1:" + QByteArray::number(kiwi.port()) + "/kiwi/0/snd");
+        KiwiClient client;
+        QSignalSpy closed(&client, &KiwiClient::closed);
+        QSignalSpy state(&client, &KiwiClient::stateChanged);
+        client.tune(6070.0, QStringLiteral("AM"));
+        client.open(QStringLiteral("http://127.0.0.1:%1").arg(proxy.serverPort()));
+        QTRY_VERIFY_WITH_TIMEOUT(client.isReady(), 5000);
+        QCOMPARE(hits, 4);   // at each hop: the handshake, then the question where to
+        QTRY_COMPARE_WITH_TIMEOUT(kiwi.pages.size(), 3, 5000);   // the page fetched from the receiver itself
+        QCOMPARE(hits, 4);                                          // not from the proxy
+        QVERIFY2(kiwi.lastPath.endsWith(QLatin1String("/SND")), qPrintable(kiwi.lastPath));   // our path, not the redirect's
+        QCOMPARE(kiwi.count(QStringLiteral("SET auth")), 1);
+        QTRY_VERIFY_WITH_TIMEOUT(kiwi.count(QStringLiteral("SET mod=")) == 1, 3000);
+        QCOMPARE(closed.count(), 0);
+        QCOMPARE(client.receiver().port(), int(proxy.serverPort()));   // still the address as listed
+        client.close();
+    }
+
+    // A redirect that leads nowhere, or round in circles, is given up on
+    // and said once.
+    void redirectLoopsAndDeadEndsAreReported()
+    {
+        QTcpServer loop;   // redirects to itself
+        QVERIFY(loop.listen(QHostAddress::LocalHost));
+        const QByteArray self = "http://127.0.0.1:" + QByteArray::number(loop.serverPort()) + "/";
+        connect(&loop, &QTcpServer::newConnection, this, [&]() {
+            while (QTcpSocket* s = loop.nextPendingConnection())
+                connect(s, &QTcpSocket::readyRead, s, [s, self]() {
+                    s->readAll();
+                    s->write("HTTP/1.0 307 Temporary Redirect\r\nLocation: " + self
+                             + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    s->disconnectFromHost();
+                });
+        });
+        KiwiClient client;
+        QSignalSpy closed(&client, &KiwiClient::closed);
+        client.open(QStringLiteral("127.0.0.1:%1").arg(loop.serverPort()));
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, 10000);
+        QVERIFY2(closed.first().first().toString().contains(QLatin1String("redirect")), qPrintable(closed.first().first().toString()));
+        QVERIFY(!client.isOpen());
+        QTest::qWait(300);
+        QCOMPARE(closed.count(), 1);
+
+        // a redirect to a port nobody listens on: the refusal is reported
+        QTcpServer probe;
+        QVERIFY(probe.listen(QHostAddress::LocalHost));
+        const quint16 dead = probe.serverPort();
+        probe.close();
+        QTcpServer toDead;
+        QVERIFY(toDead.listen(QHostAddress::LocalHost));
+        const QByteArray deadUrl = "http://127.0.0.1:" + QByteArray::number(dead) + "/";
+        connect(&toDead, &QTcpServer::newConnection, this, [&]() {
+            while (QTcpSocket* s = toDead.nextPendingConnection())
+                connect(s, &QTcpSocket::readyRead, s, [s, deadUrl]() {
+                    s->readAll();
+                    s->write("HTTP/1.0 302 Found\r\nLocation: " + deadUrl + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    s->disconnectFromHost();
+                });
+        });
+        KiwiClient second;
+        QSignalSpy closed2(&second, &KiwiClient::closed);
+        second.open(QStringLiteral("127.0.0.1:%1").arg(toDead.serverPort()));
+        QTRY_COMPARE_WITH_TIMEOUT(closed2.count(), 1, 10000);
+        QVERIFY2(closed2.first().first().toString().contains(QLatin1String("refused"), Qt::CaseInsensitive),
+                 qPrintable(closed2.first().first().toString()));
     }
 };
 

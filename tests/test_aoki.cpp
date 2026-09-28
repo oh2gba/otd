@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/AokiParser.h"
+#include "core/Schedule.h"
+#include "core/StationDb.h"
+
+#include <QTemporaryDir>
+#include <QTimeZone>
 #include <QtTest>
 
 class TestAoki : public QObject
@@ -29,44 +34,75 @@ private slots:
         QCOMPARE(r.entries.size(), 11);
         QCOMPARE(r.skippedLines, 0);
 
+        QVERIFY(r.sundayFirst);   // "Day 1 = Sunday"
+
+        // the fields as the list has them
         const StationEntry& ts = r.entries[0];
         QCOMPARE(ts.source, QStringLiteral("aoki"));
         QCOMPARE(ts.kHz, 40.0);
         QCOMPARE(ts.startMin, 0);
         QCOMPARE(ts.endMin, 1440);
-        QVERIFY(ts.days.isEmpty());
+        QCOMPARE(ts.days, QStringLiteral("1234567"));
         QCOMPARE(ts.station, QStringLiteral("Time Signal"));
-        QCOMPARE(ts.langText, QStringLiteral("A1B"));
+        QCOMPARE(ts.lang, QStringLiteral("A1B"));
         QCOMPARE(ts.itu, QStringLiteral("J"));
-        QCOMPARE(ts.siteText, QStringLiteral("Otakadoyama Tamura C"));
-        QCOMPARE(ts.remarks, QStringLiteral("50 kW, NICT"));
-
-        // Aoki day 1 = Sunday; " 23456 " = Mon..Fri -> EiBi digits 12345
-        QCOMPARE(r.entries[1].days, QStringLiteral("12345"));
+        QCOMPARE(ts.site, QStringLiteral("Otakadoyama Tamura C"));
+        QCOMPARE(ts.power, QStringLiteral("50"));
+        QCOMPARE(ts.azimuth, QStringLiteral("ND"));
+        QCOMPARE(ts.remarks, QStringLiteral("NICT"));
+        QCOMPARE(r.entries[1].days, QStringLiteral("23456"));   // the list's own numbering
         QCOMPARE(r.entries[1].startMin, 300);
         QCOMPARE(r.entries[1].endMin, 60);
-        // ".234567" = Mon..Sat -> 123456
-        QCOMPARE(r.entries[2].days, QStringLiteral("123456"));
-        // "   1   " = Sunday -> 7
-        QCOMPARE(r.entries[3].days, QStringLiteral("7"));
-        // "12.4567" = all but Tuesday -> 134567
-        QCOMPARE(r.entries[5].days, QStringLiteral("134567"));
-
-        QCOMPARE(r.entries[4].station, QStringLiteral("CHINA RADIO INTERNATIONAL"));
-        QCOMPARE(r.entries[4].siteText, QStringLiteral("Kashi-Saibagh 2022"));
-        QCOMPARE(r.entries[4].itu, QStringLiteral("TKS"));
-        QCOMPARE(r.entries[4].remarks, QStringLiteral("100 kW, az 209°, CRI a26"));
-
-        QCOMPARE(r.entries[6].persistence, 8);          // 'x' flag: off air
-        QCOMPARE(r.entries[6].kHz, 765.0);
-        QCOMPARE(r.entries[7].kHz, 1557.0);             // '*' flag survives
-        QVERIFY(r.entries[7].remarks.endsWith("*"));
+        QCOMPARE(r.entries[2].days, QStringLiteral(".234567"));
+        QCOMPARE(r.entries[3].days, QStringLiteral("1"));
+        QCOMPARE(r.entries[6].flag, QStringLiteral("x"));
+        QCOMPARE(r.entries[6].persistence, 0);
+        QCOMPARE(r.entries[7].flag, QStringLiteral("*"));
         QCOMPARE(r.entries[8].kHz, 68.5);
-        QCOMPARE(r.entries[8].mode, QStringLiteral("AM"));
-        QCOMPARE(r.entries[9].mode, QStringLiteral("DRM"));
-        QCOMPARE(r.entries[10].mode, QStringLiteral("USB"));
-        QCOMPARE(r.entries[10].siteText, QString());
+        QVERIFY(r.entries[8].mode.isEmpty());   // no mode in the list; it is worked out when shown
+        QCOMPARE(r.entries[10].site, QString());
         QCOMPARE(r.entries[10].itu, QStringLiteral("IRL"));
+
+        // what the list shows, through the lookup table with the day numbering
+        QTemporaryDir dir;
+        StationDb db(dir.filePath("s.db"));
+        QVERIFY2(db.open(), qPrintable(db.lastError()));
+        QVERIFY(db.replaceCodes("aoki", {{"days", {{"1", "Sunday"}}}}));
+        QVERIFY(db.replaceSource("aoki", r.entries));
+        StationList rows;
+        for (const StationEntry& e : r.entries)   // in the file's order, as stored
+            rows << e;
+        // Aoki day 1 = Sunday; " 23456 " = Mon..Fri -> Monday-first 12345
+        QCOMPARE(db.weekdays(rows[1]), QStringLiteral("12345"));
+        QCOMPARE(db.weekdays(rows[2]), QStringLiteral("123456"));   // ".234567" = Mon..Sat
+        QCOMPARE(db.weekdays(rows[3]), QStringLiteral("7"));        // "1" = Sunday
+        QCOMPARE(db.weekdays(rows[5]), QStringLiteral("134567"));   // "12.4567" = all but Tuesday
+        QCOMPARE(db.daysOf(rows[0]), QString());                    // every day
+        QCOMPARE(StationDb::remarksOf(rows[0]), QStringLiteral("50 kW, NICT"));
+        QCOMPARE(StationDb::remarksOf(rows[4]), QStringLiteral("100 kW, az 209°, CRI a26"));
+        QVERIFY(StationDb::remarksOf(rows[7]).endsWith("*"));
+        QCOMPARE(StationDb::modeOf(rows[8]), QStringLiteral("AM"));
+        QCOMPARE(StationDb::modeOf(rows[9]), QStringLiteral("DRM"));
+        QCOMPARE(StationDb::modeOf(rows[10]), QStringLiteral("USB"));
+        QCOMPARE(db.languageOf(rows[4]), QStringLiteral("English"));
+        QCOMPARE(db.siteOf(rows[4]), QStringLiteral("Kashi-Saibagh 2022"));
+        const QDateTime monday(QDate(2026, 9, 28), QTime(6, 0), QTimeZone::UTC);
+        QCOMPARE(Schedule::status(rows[6], monday, db.weekdays(rows[6])), Schedule::OnAir::Inactive);   // "x"
+        QCOMPARE(Schedule::status(rows[1], monday, db.weekdays(rows[1])), Schedule::OnAir::Yes);
+        QCOMPARE(Schedule::status(rows[3], monday.addSecs(4 * 3600), db.weekdays(rows[3])), Schedule::OnAir::No);
+
+        // a list that numbers from Monday
+        QVERIFY(db.replaceCodes("aoki", {{"days", {{"1", "Monday"}}}}));
+        QCOMPARE(db.weekdays(rows[1]), QStringLiteral("23456"));
+    }
+
+    void mondayFirstTitle()
+    {
+        const QByteArray data =
+            "B25 Shortwave Frequency List   Day 1 = Monday\r\n"
+            "FRE   STATION                         UTC       Su-W-Sa Language             Pow Azi Location                ADM L/L             Remarks\r\n"
+            " 9500 CHINA RADIO INTERNATIONAL       1100-1400 1234567 English              100 209 Kashi-Saibagh 2022      TKS 392152N0754258E CRI a26\r\n";
+        QVERIFY(!AokiParser::parse(data).sundayFirst);
     }
 
     void missingHeaderIsAnError()

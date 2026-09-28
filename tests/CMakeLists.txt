@@ -33,6 +33,8 @@ endfunction()
 otd_app_test(test_settings)     # AppSettings in the database, the Settings dialog
 otd_app_test(test_kiwiplayer)   # the player against a fake KiwiSDR on localhost
 otd_app_test(test_mainwindow)   # the real main window against a fake rigctld
+otd_app_test(test_stationmodel)  # what the station list shows for an entry
+otd_app_test(test_kiwisound)     # the player through a real (silent) sound server, PulseAudio
 
 # manual tool, not a test: connects to a KiwiSDR and reports what arrives
 add_executable(kiwi_probe kiwi_probe.cpp)

@@ -1,5 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/EibiParser.h"
+#include "core/EibiSource.h"
+#include "core/StationDb.h"
+
+#include <QNetworkAccessManager>
+#include <QSignalSpy>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTemporaryDir>
 #include <QtTest>
 
 class TestEibi : public QObject
@@ -46,8 +54,10 @@ private slots:
 
         QCOMPARE(r.entries[3].kHz, 16.3);
 
-        QCOMPARE(buzzer.mode, QStringLiteral("AM"));
-        QCOMPARE(fax.mode, QStringLiteral("FAX"));
+        // EiBi has no mode column: nothing is stored, the list works it out
+        QVERIFY(buzzer.mode.isEmpty());
+        QCOMPARE(EibiParser::guessMode(buzzer), QStringLiteral("AM"));
+        QCOMPARE(EibiParser::guessMode(fax), QStringLiteral("FAX"));
     }
 
     void modeGuessing()
@@ -150,6 +160,90 @@ private slots:
         QCOMPARE(t.sites.value("ARM/y"), QStringLiteral("Yerevan"));
         QCOMPARE(t.sites.value("RUS/s"), QStringLiteral("Samara"));
         QCOMPARE(t.sites.value("RUS/B2"), QStringLiteral("Kerro, near St. Petersburg"));
+    }
+
+    // A whole EiBi update from a small web server on this machine: the
+    // schedule, then the README with the code tables. The rows keep EiBi's
+    // codes; the list and the search get the names from the README's tables.
+    void importFillsInNames()
+    {
+        QByteArray csv = "kHz:75;Time(UTC):93;Days:59;ITU:49;Station:201;Lng:49;Target:62;Remarks:135;P:35;Start:60;Stop:60;\r\n"
+                         "7400;0000-2400;;FIN;Radio Hiekka;FI;NEu;hv;1;;\r\n"
+                         "9265;0000-2400;;USA;WINB;E;Eu;/D-n;1;;\r\n";
+        for (int i = 0; i < 120; ++i)   // the importer wants a real-sized file
+            csv += QByteArray::number(5000 + i) + ";0000-2400;;RUS;Filler;R;Eu;s;1;;\r\n";
+        const QByteArray readme =
+            "   I) Language codes.\n"
+            "   E     English: UK (60m), USA (225m), India (200m), others               [eng]\n"
+            "   FI    Finnish: Finland (5m)                                             [fin]\n"
+            "   R     Russian: Russia (140m), others                                    [rus]\n"
+            "\n"
+            "   II) Country codes.\n"
+            "   D    Germany\n"
+            "   FIN  Finland\n"
+            "   RUS  Russia\n"
+            "   USA  United States of America\n"
+            "\n"
+            "   III) Target-area codes.\n"
+            "   Eu  - Europe (often including North Africa/Middle East)\n"
+            "   N.. - North ..\n"
+            "\n"
+            "   IV) Transmitter site codes.\n"
+            "   D: Wertachtal 48N05-10E42 except:\n"
+            "        n-Nauen 52N38-12E54\n"
+            "   FIN: Pori 61N28-21E35 except:\n"
+            "        hv-Harjavalta 61N18-22E08\n"
+            "   RUS: s-Samara 53N17-50E15\n";
+
+        QTcpServer web;
+        QVERIFY(web.listen(QHostAddress::LocalHost));
+        connect(&web, &QTcpServer::newConnection, this, [&]() {
+            while (QTcpSocket* s = web.nextPendingConnection())
+                connect(s, &QTcpSocket::readyRead, s, [s, csv, readme]() {
+                    const QByteArray request = s->readAll();
+                    const QByteArray path = request.split(' ').value(1);
+                    QByteArray body;
+                    QByteArray status = "200 OK";
+                    if (path.endsWith(".csv"))
+                        body = csv;
+                    else if (path.endsWith("README.TXT"))
+                        body = readme;
+                    else
+                        status = "404 Not Found";
+                    s->write("HTTP/1.1 " + status + "\r\nContent-Length: " + QByteArray::number(body.size())
+                             + "\r\nConnection: close\r\n\r\n" + body);
+                    s->disconnectFromHost();
+                });
+        });
+
+        QTemporaryDir dir;
+        StationDb db(dir.filePath("s.db"));
+        QVERIFY2(db.open(), qPrintable(db.lastError()));
+        QNetworkAccessManager nam;
+        EibiSource eibi(&db, &nam);
+        eibi.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1/dx/").arg(web.serverPort())));
+        QSignalSpy finished(&eibi, &ScheduleSource::finished);
+        eibi.update();
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QVERIFY2(finished.first().first().toBool(), qPrintable(finished.first().last().toString()));
+
+        const StationList finnish = db.search(QStringLiteral("finnish"));
+        QCOMPARE(finnish.size(), 1);
+        QCOMPARE(finnish.first().station, QStringLiteral("Radio Hiekka"));
+        // stored as published, shown through the README's tables
+        QCOMPARE(finnish.first().lang, QStringLiteral("FI"));
+        QCOMPARE(finnish.first().site, QStringLiteral("hv"));
+        QCOMPARE(finnish.first().target, QStringLiteral("NEu"));
+        QCOMPARE(db.languageOf(finnish.first()), QStringLiteral("Finnish"));
+        QCOMPARE(db.siteOf(finnish.first()), QStringLiteral("Harjavalta"));
+        QCOMPARE(db.targetOf(finnish.first()), QStringLiteral("North Europe"));
+        QCOMPARE(db.search(QStringLiteral("north europe")).size(), 1);
+        const StationList nauen = db.search(QStringLiteral("nauen"));
+        QCOMPARE(nauen.size(), 1);
+        QCOMPARE(nauen.first().station, QStringLiteral("WINB"));
+        QCOMPARE(nauen.first().site, QStringLiteral("/D-n"));
+        QCOMPARE(db.siteOf(nauen.first()), QStringLiteral("Nauen (Germany)"));
+        QCOMPARE(db.search(QStringLiteral("russian samara")).size(), 120);
     }
 };
 

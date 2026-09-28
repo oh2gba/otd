@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "MainWindow.h"
+#include "BufferBar.h"
 #include "MyStationsDialog.h"
 #include "StationEditDialog.h"
 #include "StationModel.h"
@@ -18,6 +19,7 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QRegularExpression>
 #include <QEvent>
 #include <cmath>
 #include <QWheelEvent>
@@ -451,9 +453,13 @@ void MainWindow::buildUi()
     connect(m_onAirOnly, &QCheckBox::toggled, this, &MainWindow::onOnAirOnlyToggled);
 
     m_filter = new QLineEdit;
-    m_filter->setPlaceholderText(tr("Search all stations (name, language, site, country) ..."));
+    m_filter->setObjectName(QStringLiteral("search"));
+    m_filter->setPlaceholderText(tr("Search all stations, or target:, language:, country:, site:, station:, mode: ..."));
     m_filter->setToolTip(tr("With text here the whole database is searched instead of the "
-                            "frequencies nearby. Double-click a row to tune the rig to it."));
+                            "frequencies nearby. Every word must match; !word leaves matches out.\n"
+                            "field:value looks in one column only: target:, language:, "
+                            "country:, site:, station:, mode: (a quoted value may have spaces)\n"
+                            "Double-click a row to tune the rig to it."));
     m_filter->setClearButtonEnabled(true);
     // Escape anywhere in the window drops the search and returns to the dial
     auto* esc = new QShortcut(QKeySequence::Cancel, this);
@@ -497,21 +503,23 @@ void MainWindow::buildUi()
     m_table->horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_table->horizontalHeader(), &QWidget::customContextMenuRequested,
             this, &MainWindow::headerContextMenu);
-    // double-click anywhere on the header, title or divider: lay out all
-    // columns again to fit the data and the window (deferred, because Qt
-    // resizes the one column at a divider right after the signal)
-    const auto refit = [this](int) {
-        QTimer::singleShot(0, this, [this]() {
-            m_columnsFitted = false;
-            fitColumns();
-            centreOnMarker();
-        });
-    };
-    connect(m_table->horizontalHeader(), &QHeaderView::sectionDoubleClicked, this, refit);
-    connect(m_table->horizontalHeader(), &QHeaderView::sectionHandleDoubleClicked, this, refit);
+    // double-click on a divider (and on a title in the dial view, where a
+    // click does nothing else): lay out all columns again to fit the data
+    // and the window
+    connect(m_table->horizontalHeader(), &QHeaderView::sectionDoubleClicked, this, [this](int) {
+        if (!m_searching)
+            refitColumns();
+    });
+    connect(m_table->horizontalHeader(), &QHeaderView::sectionHandleDoubleClicked, this,
+            [this](int) { refitColumns(); });
+    // while searching, a click on a title sorts the results by that column
+    connect(m_table->horizontalHeader(), &QHeaderView::sectionClicked, this, &MainWindow::onHeaderClicked);
+    m_proxy->setSortCaseSensitivity(Qt::CaseInsensitive);
 
     // per pixel, so the dial view can put the VFO exactly in the middle
     m_table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    // scrolling towards an end of the loaded dial loads more
+    connect(m_table->verticalScrollBar(), &QScrollBar::valueChanged, this, &MainWindow::refillDial);
 
     m_scale = new DialScale;
     connect(m_scale, &DialScale::tuneRequested, this, [this](double kHz) {
@@ -564,6 +572,22 @@ void MainWindow::buildUi()
         m_sdrStatus->setText(text.isEmpty() ? QString() : tr("KiwiSDR: %1").arg(text));
     });
     m_dbStatus = new QLabel;
+    // audio in hand for the online receiver, in the corner while it plays
+    m_bufferBar = new BufferBar;
+    m_bufferBar->hide();
+    statusBar()->addWidget(m_bufferBar);
+    connect(m_player, &KiwiPlayer::audioInHandChanged, this, [this](double seconds) {
+        if (m_player->isPlaying())
+        {
+            m_bufferBar->setSeconds(seconds);
+            m_bufferBar->show();
+        }
+        else
+        {
+            m_bufferBar->clear();
+            m_bufferBar->hide();
+        }
+    });
     statusBar()->addWidget(m_rigText);
     statusBar()->addWidget(m_sdrStatus, 1);
     statusBar()->addPermanentWidget(m_dbStatus);
@@ -780,6 +804,7 @@ void MainWindow::refreshLookup()
     StationList list;
     const bool dial = text.isEmpty() && m_centreKHz > 0.0;
     m_dialActive = dial;
+    setSearching(!text.isEmpty());
     if (!text.isEmpty())
     {
         // the same search again, only the VFO moved: keep the list as it
@@ -832,6 +857,60 @@ void MainWindow::refreshLookup()
         QTimer::singleShot(0, this, [this]() { fitColumns(); centreOnMarker(); });
 }
 
+void MainWindow::refitColumns()
+{
+    // deferred: Qt resizes the one column at a divider right after the signal
+    QTimer::singleShot(0, this, [this]() {
+        m_columnsFitted = false;
+        fitColumns();
+        centreOnMarker();
+    });
+}
+
+void MainWindow::setSearching(bool searching)
+{
+    // The dial view and the nearby list are in frequency order, the order
+    // of the dial, and cannot be sorted. Search results can: a click on a
+    // column title, once more for the other way round, a third time for
+    // the usual order (on air first, then by frequency). Leaving the
+    // search drops the sorting.
+    QHeaderView* h = m_table->horizontalHeader();
+    if (searching == m_searching)
+        return;
+    m_searching = searching;
+    h->setSectionsClickable(searching);
+    if (!searching)
+    {
+        m_sortColumn = -1;
+        applySort();
+    }
+}
+
+void MainWindow::onHeaderClicked(int column)
+{
+    if (!m_searching)
+        return;
+    if (column != m_sortColumn)
+    {
+        m_sortColumn = column;
+        m_sortOrder = Qt::AscendingOrder;
+    }
+    else if (m_sortOrder == Qt::AscendingOrder)
+        m_sortOrder = Qt::DescendingOrder;
+    else
+        m_sortColumn = -1;
+    applySort();
+}
+
+void MainWindow::applySort()
+{
+    QHeaderView* h = m_table->horizontalHeader();
+    // column -1 is the model's own order; descending would turn even that round
+    m_proxy->sort(m_sortColumn, m_sortColumn < 0 ? Qt::AscendingOrder : m_sortOrder);
+    h->setSortIndicatorShown(m_sortColumn >= 0);
+    h->setSortIndicator(m_sortColumn, m_sortOrder);
+}
+
 void MainWindow::onFilterChanged(const QString&)
 {
     refreshLookup();
@@ -855,7 +934,10 @@ void MainWindow::onRowActivated(const QModelIndex& index)
 
 void MainWindow::tuneTo(double kHz, const QString& mode, qint64 flashId)
 {
-    if (m_rig->isConnected() && m_rig->isAnswering())
+    // Follow rig unticked means the listener has set the rig aside for now
+    // (listening online, say): then a station goes to the display and the
+    // online receiver, not to the rig, and the tick stays off.
+    if (m_followRig->isChecked() && m_rig->isConnected() && m_rig->isAnswering())
     {
         if (flashId != 0)
         {
@@ -871,14 +953,20 @@ void MainWindow::tuneTo(double kHz, const QString& mode, qint64 flashId)
         if (rigModes.contains(mode))
             m_rig->setMode(mode);
         m_rig->setFrequency(qRound64(kHz * 1000.0));
-        if (!m_followRig->isChecked())
-            m_followRig->setChecked(true);
         statusBar()->showMessage(tr("Tuning rig to %1 kHz %2").arg(kHz, 0, 'f', 3).arg(mode), 5000);
         return;
     }
 
     if (m_followRig->isChecked())
-        m_followRig->setChecked(false);   // no rig: manual mode
+        m_followRig->setChecked(false);   // no rig answering: manual mode
+    if (flashId != 0)
+    {
+        m_model->setFlash(flashId);   // the same receipt as when the rig is tuned
+        QTimer::singleShot(350, this, [this]() { m_model->setFlash(0); });
+    }
+    // the station's mode for the online receiver, when it is one it has
+    if (!mode.isEmpty())
+        m_player->setManualMode(mode);
     m_freqEdit->setText(QString::number(kHz, 'f', 3));
     setCentreKHz(kHz, false);
 }
@@ -910,13 +998,13 @@ void MainWindow::updateScale()
             if (rank < m.rank)
             {
                 m.rank = rank;
-                m.name = e.station;
+                m.name = m_db->stationOf(e);
             }
             continue;
         }
         DialScale::Mark m;
         m.kHz = e.kHz;
-        m.name = e.station;
+        m.name = m_db->stationOf(e);
         m.rank = rank;
         marks.push_back(m);
     }
@@ -981,17 +1069,19 @@ void MainWindow::tableContextMenu(const QPoint& pos)
     if (idx.isValid() && !m_model->isBlank(idx.row()))
     {
         const StationEntry e = m_model->entryAt(idx.row());
+        const QString station = m_db->stationOf(e);
+        const QString mode = StationDb::modeOf(e);
         menu.addAction(tr("Tune to %1 kHz").arg(e.kHz), this, [this, proxyIdx]() {
             onRowActivated(proxyIdx);
         });
         menu.addSeparator();
-        const QUrl modeUrl = SigidWiki::modeUrl(e.mode);
+        const QUrl modeUrl = SigidWiki::modeUrl(mode);
         if (!modeUrl.isEmpty())
-            menu.addAction(tr("What does %1 sound like? (sigidwiki)").arg(e.mode), this, [modeUrl]() {
+            menu.addAction(tr("What does %1 sound like? (sigidwiki)").arg(mode), this, [modeUrl]() {
                 QDesktopServices::openUrl(modeUrl);
             });
-        menu.addAction(tr("Search sigidwiki for \"%1\"").arg(e.station), this, [e]() {
-            QDesktopServices::openUrl(SigidWiki::searchUrl(e.station));
+        menu.addAction(tr("Search sigidwiki for \"%1\"").arg(station), this, [station]() {
+            QDesktopServices::openUrl(SigidWiki::searchUrl(station));
         });
         menu.addSeparator();
         if (e.source == userSourceId())
@@ -1019,13 +1109,20 @@ void MainWindow::tableContextMenu(const QPoint& pos)
         else
         {
             menu.addAction(tr("Copy to my stations..."), this, [this, e]() {
+                // the listener's own entry, filled with what the list shows
                 StationEntry copy = e;
                 copy.id = 0;
                 copy.source = userSourceId();
-                if (copy.langText.isEmpty())
-                    copy.langText = m_db->languageName(e.lang).section(QLatin1Char(':'), 0, 0);
-                if (copy.siteText.isEmpty())
-                    copy.siteText = m_db->siteName(e.itu, e.site);
+                copy.station = m_db->stationOf(e);
+                copy.lang = m_db->languageOf(e);
+                copy.site = m_db->siteOf(e);
+                copy.target = m_db->targetOf(e);
+                copy.days = m_db->daysOf(e);
+                copy.mode = StationDb::modeOf(e);
+                copy.remarks = StationDb::remarksOf(e);
+                copy.power.clear();
+                copy.azimuth.clear();
+                copy.flag.clear();
                 StationEditDialog dlg(copy, this);
                 if (dlg.exec() == QDialog::Accepted)
                 {
@@ -1344,6 +1441,8 @@ void MainWindow::headerContextMenu(const QPoint& pos)
             saveColumns();   // right away, not only on a clean exit
         });
     }
+    menu.addSeparator();
+    menu.addAction(tr("Fit columns to the window"), this, &MainWindow::refitColumns);
     menu.exec(h->mapToGlobal(pos));
 }
 
@@ -1370,6 +1469,69 @@ void MainWindow::centreOnMarker()
     bar->setValue(y - m_table->viewport()->height() / 2);
 }
 
+void MainWindow::refillDial()
+{
+    // The dial view holds a thousand entries either side of the tuned
+    // frequency. Scrolled near an end of them, it loads the same window
+    // around what is on screen instead, keeping the rows where they are,
+    // so the list goes on as far as the database does. The tuning, the
+    // seam and the scale stay as they are.
+    if (!m_dialActive || m_refilling)
+        return;
+    const int rows = m_proxy->rowCount();
+    int first = -1, last = -1;
+    for (int r = 0; r < rows; ++r)
+        if (!m_model->isBlank(m_proxy->mapToSource(m_proxy->index(r, 0)).row()))
+        {
+            if (first < 0)
+                first = r;
+            last = r;
+        }
+    if (first < 0)
+        return;
+    const int height = m_table->viewport()->height();
+    int top = m_table->rowAt(0);
+    int bottom = m_table->rowAt(height - 1);
+    if (top < 0)
+        top = 0;
+    if (bottom < 0)
+        bottom = rows - 1;
+    const int margin = 100;
+    if (top >= first + margin && bottom <= last - margin)
+        return;   // well inside the loaded rows
+    // the row in the middle of the screen keeps its place; among the blank
+    // rows at an end, the nearest real one does
+    int mid = m_table->rowAt(height / 2);
+    if (mid < 0 || mid < first)
+        mid = first;
+    if (mid > last)
+        mid = last;
+    const StationEntry midEntry = m_model->entryAt(m_proxy->mapToSource(m_proxy->index(mid, 0)).row());
+    const int midY = m_table->rowViewportPosition(mid);
+    const StationList list = m_db->around(midEntry.kHz, 1000, enabledSources());
+    if (list.isEmpty())
+        return;
+    if (qFuzzyCompare(list.first().kHz, m_model->entryAt(m_proxy->mapToSource(m_proxy->index(first, 0)).row()).kHz)
+        && qFuzzyCompare(list.last().kHz, m_model->entryAt(m_proxy->mapToSource(m_proxy->index(last, 0)).row()).kHz)
+        && list.size() == last - first + 1)
+        return;   // the database has no more in that direction
+    m_refilling = true;
+    m_model->setDialEntries(list, m_centreKHz);
+    m_table->doItemsLayout();
+    const int newRows = m_proxy->rowCount();
+    for (int r = 0; r < newRows; ++r)
+    {
+        const int src = m_proxy->mapToSource(m_proxy->index(r, 0)).row();
+        if (!m_model->isBlank(src) && m_model->entryAt(src).id == midEntry.id)
+        {
+            QScrollBar* bar = m_table->verticalScrollBar();
+            bar->setValue(bar->value() + m_table->rowViewportPosition(r) - midY);
+            break;
+        }
+    }
+    m_refilling = false;
+}
+
 void MainWindow::showEvent(QShowEvent* event)
 {
     QMainWindow::showEvent(event);
@@ -1394,6 +1556,8 @@ bool MainWindow::tuneByKey(QKeyEvent* key)
     }
     if (key->modifiers() & Qt::ControlModifier)
         step /= 10.0;
+    if (QApplication::activePopupWidget())
+        return false;   // an open popup (a menu, a list) takes the keys
     QWidget* focus = QApplication::focusWidget();
     if (qobject_cast<QComboBox*>(focus) || qobject_cast<QAbstractSpinBox*>(focus)
         || qobject_cast<QAbstractItemView*>(focus) || (focus && qobject_cast<QComboBox*>(focus->parentWidget())))

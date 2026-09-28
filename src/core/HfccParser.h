@@ -34,5 +34,7 @@ namespace HfccParser
     Tables parseTables(const QByteArray& site, const QByteArray& broadcasters,
                        const QByteArray& languages, const QByteArray& admins);
 
-    ParseResult parseSchedule(const QByteArray& data, const Tables& tables);
+    // The schedule lines as published; the codes are resolved with the
+    // tables when shown, not here.
+    ParseResult parseSchedule(const QByteArray& data);
 }

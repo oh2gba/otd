@@ -9,6 +9,7 @@
 #include <QTimer>
 #include <QUrl>
 
+class QNetworkAccessManager;
 class QWebSocket;
 
 // Audio client for a KiwiSDR receiver. Speaks the receiver's own
@@ -83,6 +84,14 @@ private:
     void fail(const QString& reason);
     // detach and dispose of the current socket; nothing it still does is heard
     void dropSocket();
+    // a fresh socket to this address, for open() and after a redirect
+    void connectSocket(const QUrl& wsUrl);
+    // the handshake was answered with a redirect (the proxy.kiwisdr.com
+    // hosts do that): ask where to and connect there
+    void followRedirect();
+    // fetch the receiver's page and two of its icons, as a visitor's
+    // browser does, so that the receiver counts otd as a listener
+    void visitPage();
     // why the connection ended, as far as anyone said; empty for a plain hang-up
     QString endReason() const;
 
@@ -91,6 +100,9 @@ private:
     QTimer m_connectTimer;   // gives up on a receiver that does not answer
     int m_session = 0;       // counts open() calls, to tell sessions apart
     QUrl m_receiver;
+    QUrl m_wsUrl;              // the address the socket was opened at
+    int m_redirects = 0;       // followed in this session
+    QNetworkAccessManager* m_nam = nullptr;   // only for asking where a redirect goes
     QString m_password;
     bool m_open = false;
     bool m_ready = false;
@@ -101,4 +113,6 @@ private:
     double m_offsetKHz = 0.0;
     Adpcm m_adpcm;
     QString m_pendingReason;   // said by the receiver before it hangs up
+    bool m_outOfRange = false; // the last tuning was outside the receiver's range
+    quint64 m_sndFrames = 0;   // for the log
 };

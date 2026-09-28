@@ -84,8 +84,6 @@ public:
     static int rank(Schedule::OnAir s);
 private:
     static QString sourceLabel(const QString& id);
-    QString languageOf(const StationEntry& e) const;
-    QString siteOf(const StationEntry& e) const;
     void sortRows();
     QString tooltip(const Row& r) const;
 

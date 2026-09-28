@@ -13,6 +13,7 @@ namespace AokiParser
         StationList entries;
         int skippedLines = 0;
         QString title;      // "A26 Shortwave Frequecy List  September 20  2026, ..."
+        bool sundayFirst = true;   // day 1 in the days column is Sunday (else Monday)
         QString error;
     };
 

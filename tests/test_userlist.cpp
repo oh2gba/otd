@@ -24,8 +24,8 @@ private slots:
         b.days = "Mo-Fr";
         b.station = "HFGCS";
         b.mode = "USB";
-        b.langText = "English";
-        b.siteText = "Andrews";
+        b.lang = "English";
+        b.site = "Andrews";
 
         const QByteArray csv = UserList::toCsv({a, b});
         QVERIFY(csv.startsWith("kHz;Start;End;Days;Station;Mode;Country;Language;Site;Notes\n"));
@@ -43,7 +43,7 @@ private slots:
         QCOMPARE(back[1].endMin, 60);
         QCOMPARE(back[1].days, QStringLiteral("Mo-Fr"));
         QCOMPARE(back[1].mode, QStringLiteral("USB"));
-        QCOMPARE(back[1].siteText, QStringLiteral("Andrews"));
+        QCOMPARE(back[1].site, QStringLiteral("Andrews"));
     }
 };
 

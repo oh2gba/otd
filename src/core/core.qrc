@@ -1,5 +1,6 @@
 <RCC>
   <qresource prefix="/">
     <file alias="bandplan.json">../../data/bandplan.json</file>
+    <file alias="ciraf.json">../../data/ciraf.json</file>
   </qresource>
 </RCC>

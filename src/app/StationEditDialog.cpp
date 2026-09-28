@@ -60,8 +60,8 @@ StationEditDialog::StationEditDialog(const StationEntry& entry, QWidget* parent)
     m_country = new QLineEdit(entry.itu);
     m_country->setPlaceholderText(tr("ITU code, e.g. RUS, G, USA"));
     m_country->setMaxLength(3);
-    m_language = new QLineEdit(entry.langText);
-    m_site = new QLineEdit(entry.siteText);
+    m_language = new QLineEdit(entry.lang);
+    m_site = new QLineEdit(entry.site);
     m_notes = new QPlainTextEdit(entry.remarks);
     m_notes->setPlaceholderText(tr("Sound, callsign, what it might be, links ..."));
     m_notes->setMaximumHeight(90);
@@ -114,8 +114,8 @@ StationEntry StationEditDialog::entry() const
     }
     e.days = m_days->text().trimmed();
     e.itu = m_country->text().trimmed().toUpper();
-    e.langText = m_language->text().trimmed();
-    e.siteText = m_site->text().trimmed();
+    e.lang = m_language->text().trimmed();
+    e.site = m_site->text().trimmed();
     e.remarks = m_notes->toPlainText().trimmed();
     e.lang.clear();
     e.site.clear();

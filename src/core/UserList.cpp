@@ -35,7 +35,7 @@ QByteArray UserList::toCsv(const StationList& entries)
     {
         out += QStringLiteral("%1;%2;%3;%4;%5;%6;%7;%8;%9;%10\n")
                    .arg(QString::number(e.kHz, 'f', 3), hhmm(e.startMin), hhmm(e.endMin), clean(e.days),
-                        clean(e.station), clean(e.mode), clean(e.itu), clean(e.langText), clean(e.siteText),
+                        clean(e.station), clean(e.mode), clean(e.itu), clean(e.lang), clean(e.site),
                         clean(e.remarks));
     }
     return out.toUtf8();
@@ -74,8 +74,8 @@ StationList UserList::fromCsv(const QByteArray& data, int* skipped)
         e.station = f[4].trimmed();
         e.mode = f.value(5).trimmed().toUpper();
         e.itu = f.value(6).trimmed();
-        e.langText = f.value(7).trimmed();
-        e.siteText = f.value(8).trimmed();
+        e.lang = f.value(7).trimmed();
+        e.site = f.value(8).trimmed();
         e.remarks = f.value(9).trimmed();
         out.push_back(e);
     }

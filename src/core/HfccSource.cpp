@@ -59,14 +59,15 @@ void HfccSource::fetchZip(const QString& season, bool allowFallback)
             fileNamed(QStringLiteral("^site\\.txt$")), fileNamed(QStringLiteral("^broadcas\\.txt$")),
             fileNamed(QStringLiteral("^language\\.txt$")), fileNamed(QStringLiteral("^admin\\.txt$")));
 
-        const HfccParser::ParseResult parsed = HfccParser::parseSchedule(files.value(skedName), tables);
+        const HfccParser::ParseResult parsed = HfccParser::parseSchedule(files.value(skedName));
         if (!parsed.error.isEmpty() || parsed.entries.size() < 100)
         {
             finish(false, tr("HFCC schedule unusable: %1").arg(parsed.error));
             return;
         }
         emit progress(tr("Storing %1 HFCC entries ...").arg(parsed.entries.size()));
-        if (!store(season, parsed.entries, dl.lastModified))
+        // the reference files are the lookup tables for the codes in the lines
+        if (!m_db->storeHfccTables(tables) || !store(season, parsed.entries, dl.lastModified))
         {
             finish(false, tr("Database error: %1").arg(m_db->lastError()));
             return;

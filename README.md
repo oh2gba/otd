@@ -48,9 +48,11 @@ How to hook up the radio: <https://otd.oh2gba.eu/rig.html>
 - *On air only* toggle, free-text filter (Escape clears it). Column widths follow the
   window width; right-click the header to choose the columns, double-click it to fit them.
 - Search: type "buzzer" and the whole database is searched. Several words must all match
-  ("bbc english"), a leading "!" excludes a word ("!china english"). On-air hits first with
-  their distance from the tuned frequency. Double-click a row to tune the rig to it
-  (frequency and mode via rigctld); without a rig the view jumps there instead.
+  ("bbc english"), a leading "!" excludes a word ("!china english"), and a word can be
+  limited to one column ("target:europe", "language:finnish", also country:, site:,
+  station:, mode:). On-air hits first with their distance from the tuned frequency; a
+  click on a column title sorts the results. Double-click a row to tune the rig to it
+  (frequency and mode via rigctld); with *Follow rig* off the view jumps there instead.
 - Mode column (AM, USB, LSB, CW, DRM, RTTY, FAX, HFDL) derived from each source's markers.
 - Band indicator: the header shows the allocation of the tuned frequency (49 m broadcast, 40 m amateur,
   aeronautical mobile, maritime mobile, standard time) for the ITU region chosen in Settings.
@@ -133,7 +135,8 @@ same `stations.db` as the schedules. Without `--data-dir` that file lives in
 `~/.local/share/otd/` on Linux.
 
 `--screenshot <file>` saves a picture of the window after a few seconds and
-exits; it exists for documentation.
+exits; it exists for documentation. `--log <file>` writes what the program and
+Qt report to a file, for looking into a problem.
 
 Note for Wayland users: the window size is restored, but a Wayland compositor
 does not let applications choose their position. KWin can remember it for you

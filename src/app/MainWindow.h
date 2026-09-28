@@ -7,6 +7,7 @@
 #include "core/BandPlan.h"
 #include "core/UpdateCheck.h"
 #include "core/KiwiDirectory.h"
+#include <QHash>
 #include <QMainWindow>
 
 class QCheckBox;
@@ -14,6 +15,7 @@ class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
 class QNetworkAccessManager;
+class BufferBar;
 class QSortFilterProxyModel;
 class QTableView;
 class QTimer;
@@ -83,6 +85,11 @@ private:
     void updateCountLabel();
     void centreOnMarker();
     void headerContextMenu(const QPoint& pos);
+    void refitColumns();
+    void refillDial();   // more of the dial when scrolled near an end of it
+    void setSearching(bool searching);   // search results can be sorted, the dial cannot
+    void onHeaderClicked(int column);
+    void applySort();
     void saveColumns();
     void scheduleSave();
     QTimer* m_saveTimer = nullptr;
@@ -91,6 +98,10 @@ private:
     bool m_columnsFitted = false;
     QTimer* m_saveColumnsTimer = nullptr;
     bool m_dialActive = false;
+    bool m_searching = false;
+    bool m_refilling = false;
+    int m_sortColumn = -1;                    // search results sorted by this column, -1: as found
+    Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
     QString m_lastSearchKey;      // search text and sources of the list on screen
     void setupTable(QTableView* table);
     void updateToleranceHint();
@@ -108,6 +119,7 @@ private:
     RigctldLauncher* m_launcher = nullptr;
     StationModel* m_model = nullptr;
     StationFilter* m_proxy = nullptr;
+    BufferBar* m_bufferBar = nullptr;
     QTimer* m_tick = nullptr;
 
     QLabel* m_freqLabel = nullptr;

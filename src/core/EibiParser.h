@@ -19,8 +19,9 @@ namespace EibiParser
     // sked-Xzz.csv: semicolon separated, Latin-1, header line "kHz:75;..."
     ParseResult parseCsv(const QByteArray& data);
 
-    // Modulation from EiBi conventions: USB/LSB in the days column,
-    // "-CW"/"-TY"/"-HF" language codes; broadcasters default to AM.
+    // The mode as EiBi implies it: USB/LSB in the days column, "-CW"/"-TY"/
+    // "-HF" language codes, DRM or fax in the name; broadcasters are AM.
+    // Worked out when the entry is shown, not stored.
     QString guessMode(const StationEntry& e);
 
     // Lookup tables extracted from README.TXT.

@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "KiwiClient.h"
 
+#include <QLoggingCategory>
+
 #include <QDateTime>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QWebSocket>
 #include <QtEndian>
 
 #include <algorithm>
+
+Q_LOGGING_CATEGORY(lcKiwi, "otd.kiwi")
 
 namespace
 {
@@ -123,6 +131,7 @@ void KiwiClient::open(const QString& receiver, const QString& password)
     m_receiver = receiverUrl(receiver);
     m_password = password;
     m_pendingReason.clear();
+    m_outOfRange = false;
     m_ready = false;
     m_adpcm = Adpcm();
     m_maxKHz = 30000.0;
@@ -145,19 +154,92 @@ void KiwiClient::open(const QString& receiver, const QString& password)
         return;
     }
 
+    m_redirects = 0;
+    emit stateChanged(tr("Connecting to %1 ...").arg(m_receiver.host()));
+    m_connectTimer.start();
+    connectSocket(webSocketUrl(receiver, QDateTime::currentSecsSinceEpoch()));
+}
+
+void KiwiClient::connectSocket(const QUrl& wsUrl)
+{
+    qCDebug(lcKiwi) << "open" << m_receiver.toString() << "->" << wsUrl.toString();
+    m_wsUrl = wsUrl;
     m_ws = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
     connect(m_ws, &QWebSocket::connected, this, &KiwiClient::onConnected);
     connect(m_ws, &QWebSocket::disconnected, this, &KiwiClient::onDisconnected);
     connect(m_ws, &QWebSocket::textMessageReceived, this, &KiwiClient::onText);
     connect(m_ws, &QWebSocket::binaryMessageReceived, this, &KiwiClient::onBinary);
     connect(m_ws, &QWebSocket::errorOccurred, this, &KiwiClient::onSocketError);
-    emit stateChanged(tr("Connecting to %1 ...").arg(m_receiver.host()));
-    m_connectTimer.start();
-    m_ws->open(webSocketUrl(receiver, QDateTime::currentSecsSinceEpoch()));
+    m_ws->open(wsUrl);
+}
+
+void KiwiClient::visitPage()
+{
+    // About ten seconds after a client connects, a KiwiSDR looks at how
+    // many of its web page's files that client fetched: fewer than three
+    // and it counts as an automated program, which many owners have limited
+    // to none, and the connection is dropped ("too_busy"). Owners set that
+    // against recorders and scanners, not against a listener with a
+    // program of their own, so otd fetches what a visitor's browser fetches
+    // first: the page and two of its small icons, about 10 KB in all.
+    if (!m_nam)
+        m_nam = new QNetworkAccessManager(this);
+    QUrl base = m_wsUrl;
+    base.setScheme(m_wsUrl.scheme() == QLatin1String("wss") ? QStringLiteral("https") : QStringLiteral("http"));
+    for (const char* path : {"/", "/gfx/openwebrx-bottom-arrow-hide.png", "/gfx/openwebrx-bottom-arrow-show.png"})
+    {
+        QUrl url = base;
+        url.setPath(QString::fromLatin1(path));
+        QNetworkRequest req(url);
+        req.setTransferTimeout(10000);
+        req.setHeader(QNetworkRequest::UserAgentHeader,
+                      QStringLiteral("otd/") + QLatin1String(OTD_VERSION) + QStringLiteral(" (+https://github.com/oh2gba/otd)"));
+        QNetworkReply* reply = m_nam->get(req);
+        connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);   // nothing to do with it
+    }
+    qCDebug(lcKiwi) << "visited the page at" << base.host() << "port" << base.port();
+}
+
+void KiwiClient::followRedirect()
+{
+    // QWebSocket does not follow a redirect and does not say where it went;
+    // a plain request to the same address does
+    if (!m_nam)
+        m_nam = new QNetworkAccessManager(this);
+    QUrl http = m_wsUrl;
+    http.setScheme(m_wsUrl.scheme() == QLatin1String("wss") ? QStringLiteral("https") : QStringLiteral("http"));
+    QNetworkRequest req(http);
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    req.setTransferTimeout(10000);
+    const int session = m_session;
+    QNetworkReply* reply = m_nam->head(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, session]() {
+        reply->deleteLater();
+        if (session != m_session || !m_open)
+            return;
+        const QUrl given = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+        const QUrl target = given.isEmpty() ? QUrl() : reply->url().resolved(given);
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (!target.isValid() || target.host().isEmpty() || status < 300 || status > 399)
+        {
+            fail(tr("the receiver's address redirects (%1), but not to a receiver").arg(status));
+            return;
+        }
+        // the receiver behind it: its host and port, our own path
+        QUrl ws = m_wsUrl;
+        const bool secure = target.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0;
+        ws.setScheme(secure ? QStringLiteral("wss") : QStringLiteral("ws"));
+        ws.setHost(target.host());
+        ws.setPort(target.port(secure ? 443 : 80));
+        qCDebug(lcKiwi) << "redirected to" << target.toString() << "-> receiver at" << ws.toString();
+        connectSocket(ws);
+    });
 }
 
 void KiwiClient::close()
 {
+    if (m_open)
+        qCDebug(lcKiwi) << "close (requested)";
     m_open = false;
     m_ready = false;
     m_keepalive.stop();
@@ -172,6 +254,7 @@ void KiwiClient::setConnectTimeout(int ms)
 
 void KiwiClient::fail(const QString& reason)
 {
+    qCDebug(lcKiwi) << "fail:" << reason << "open" << m_open;
     if (!m_open)
         return;   // already over, or closed on request: nothing to report
     close();
@@ -188,12 +271,15 @@ void KiwiClient::tune(double kHz, const QString& mode)
 
 void KiwiClient::send(const QString& command)
 {
+    qCDebug(lcKiwi) << "send" << command;
     if (m_ws && m_ws->state() == QAbstractSocket::ConnectedState)
         m_ws->sendTextMessage(command);
 }
 
 void KiwiClient::onConnected()
 {
+    qCDebug(lcKiwi) << "connected";
+    visitPage();
     // the password is empty for public receivers
     send(QStringLiteral("SET auth t=kiwi p=%1").arg(m_password));
     m_keepalive.start();
@@ -216,6 +302,7 @@ QString KiwiClient::endReason() const
 
 void KiwiClient::onDisconnected()
 {
+    qCDebug(lcKiwi) << "disconnected, socket error" << (m_ws ? int(m_ws->error()) : -1) << (m_ws ? m_ws->errorString() : QString());
     // The receiver hung up, or the connection never came about: Qt reports
     // a refused connection with disconnected() before errorOccurred(), and
     // fail() stops listening to the socket, so the error is read here.
@@ -224,6 +311,20 @@ void KiwiClient::onDisconnected()
 
 void KiwiClient::onSocketError(QAbstractSocket::SocketError error)
 {
+    qCDebug(lcKiwi) << "socket error" << int(error) << (m_ws ? m_ws->errorString() : QString());
+    // "Unhandled http status code: 307": the handshake was redirected
+    static const QRegularExpression redirected(QStringLiteral("http status code: 30[1278]"));
+    if (m_open && m_ws && m_pendingReason.isEmpty() && redirected.match(m_ws->errorString()).hasMatch())
+    {
+        if (m_redirects++ < 3)
+        {
+            dropSocket();   // this socket is done; nothing more from it
+            followRedirect();
+            return;
+        }
+        fail(tr("the receiver's address keeps redirecting"));
+        return;
+    }
     // A refused or broken connection does not always end in disconnected().
     // The error handed over here counts even when the socket's own error()
     // says nothing, as after a failed WebSocket handshake (an HTTP 404 or a
@@ -253,6 +354,7 @@ void KiwiClient::onBinary(const QByteArray& frame)
 
 void KiwiClient::handleMsg(const QString& body)
 {
+    qCDebug(lcKiwi) << "MSG" << body.left(200);
     const QStringList items = body.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     for (const QString& item : items)
     {
@@ -295,7 +397,17 @@ void KiwiClient::handleMsg(const QString& body)
         }
         else if (name == QLatin1String("too_busy"))
         {
-            fail(tr("all %1 channels of this receiver are in use").arg(value));
+            // At the start: no channel free. Once the session is under way it
+            // is something else: about ten seconds in, the receiver decides
+            // whether a client is its own web page or another program, and
+            // allows only as many programs as its owner has set (0 as a rule
+            // when set at all). The number is that limit.
+            if (!m_ready)
+                fail(tr("all %1 channels of this receiver are in use").arg(value));
+            else if (value.toInt() <= 0)
+                fail(tr("this receiver's owner allows only its own web page, not programs like otd"));
+            else
+                fail(tr("this receiver allows %1 connections from programs like otd, and they are taken").arg(value));
             return;
         }
         else if (name == QLatin1String("badp") && value == QLatin1String("1"))
@@ -334,6 +446,9 @@ void KiwiClient::handleSnd(const QByteArray& body)
         return;
     const quint8 flags = quint8(body[0]);
     const quint16 smeter = qFromBigEndian<quint16>(reinterpret_cast<const uchar*>(body.constData() + 5));
+    if (m_sndFrames++ % 100 == 0)
+        qCDebug(lcKiwi) << "SND frame" << m_sndFrames << "bytes" << body.size() << "flags" << Qt::hex << flags
+                        << Qt::dec << "S-meter" << (0.1 * smeter - 127.0) << "dBm";
     emit sMeter(0.1 * smeter - 127.0);
     QByteArray data = body.mid(7);
     if (flags & kFlagStereo)
@@ -371,8 +486,16 @@ void KiwiClient::applyTuning()
     const double base = m_kHz - m_offsetKHz;
     if (base < 0.0 || base > m_maxKHz)
     {
+        m_outOfRange = true;
         emit stateChanged(tr("%1 kHz is outside this receiver's range").arg(m_kHz, 0, 'f', 3));
         return;
+    }
+    if (m_outOfRange)
+    {
+        // back in range: the complaint goes, the usual text comes back
+        m_outOfRange = false;
+        if (m_ready)
+            emit stateChanged(tr("Listening on %1").arg(m_receiver.host()));
     }
     QString mod = QStringLiteral("am");
     int low = -4900, high = 4900;

@@ -7,6 +7,7 @@
 #include <QApplication>
 #include <QAudioDevice>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMediaDevices>
@@ -176,6 +177,16 @@ KiwiDirectory::Receiver receiver(const QString& url, const QString& location, bo
 }
 }
 
+// stands in for the browser: QDesktopServices hands the address to it
+class UrlCatcher : public QObject
+{
+    Q_OBJECT
+public:
+    QList<QUrl> urls;
+public slots:
+    void handle(const QUrl& url) { urls << url; }
+};
+
 class TestKiwiPlayer : public QObject
 {
     Q_OBJECT
@@ -199,6 +210,7 @@ private slots:
         QTest::qWait(500);   // the connection's end has long arrived by now
         QCOMPARE(lastStatus(status), QStringLiteral("No sound output device"));
         QVERIFY(!p.isPlaying());
+        QCOMPARE(p.audioInHand(), 0.0);
         // the receiver's channel is given back
         QTRY_VERIFY_WITH_TIMEOUT(kiwi.peers.first()->state() == QAbstractSocket::UnconnectedState, 5000);
     }
@@ -418,6 +430,38 @@ private slots:
         QTest::qWait(300);   // the queued report has long been handled
         QVERIFY(p.isPlaying());
         QTRY_VERIFY_WITH_TIMEOUT(lastStatus(status).startsWith(QLatin1String("Listening on")), 5000);
+    }
+
+    // The arrow button next to the star opens the chosen receiver's own web
+    // page in the browser, with a scheme even for a bare host:port; without
+    // a receiver it is greyed.
+    void openButtonShowsTheReceiverPage()
+    {
+        KiwiPlayer p;
+        auto* open = p.findChild<QToolButton*>(QStringLiteral("openReceiverPage"));
+        QVERIFY(open);
+        QVERIFY(!open->isEnabled());   // nothing chosen yet
+
+        UrlCatcher catcher;   // catches what would go to the browser
+        QDesktopServices::setUrlHandler(QStringLiteral("http"), &catcher, "handle");
+
+        p.setReceivers({QStringLiteral("192.168.1.50:8073"), QStringLiteral("http://kiwi.example:8074")}, {},
+                       QStringLiteral("192.168.1.50:8073"));
+        QVERIFY(open->isEnabled());
+        QVERIFY(open->toolTip().contains(QLatin1String("192.168.1.50:8073")));
+        open->click();
+        QCOMPARE(catcher.urls.size(), 1);
+        QCOMPARE(catcher.urls.first().toString(), QStringLiteral("http://192.168.1.50:8073"));
+
+        QComboBox* list = receiverList(p);
+        QVERIFY(list);
+        list->setCurrentIndex(list->findData(QStringLiteral("http://kiwi.example:8074")));
+        emit list->activated(list->currentIndex());   // as a pick in the list does (and starts it)
+        open->click();
+        QCOMPARE(catcher.urls.size(), 2);
+        QCOMPARE(catcher.urls.last().toString(), QStringLiteral("http://kiwi.example:8074"));
+        p.stop();
+        QDesktopServices::unsetUrlHandler(QStringLiteral("http"));
     }
 
     // A search that hides the receiver being heard does not change which

@@ -7,6 +7,7 @@
 // every download, the version check and the online receiver switched off,
 // and all traffic is pointed at a proxy that only counts connections.
 // The rig's silence timeout is the real one, so some tests take seconds.
+#include "BufferBar.h"
 #include "KiwiPlayer.h"
 #include "MainWindow.h"
 #include "StationModel.h"
@@ -23,6 +24,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QNetworkProxy>
+#include <QScrollBar>
+#include <QStatusBar>
 #include <QTableView>
 #include <QTcpServer>
 #include <QTemporaryDir>
@@ -62,6 +65,8 @@ bool seed(const QString& dir, quint16 rigPort, bool followRig = true)
     e.kHz = kStationKHz;
     e.station = QStringLiteral("Test Radio");
     e.mode = QStringLiteral("AM");
+    e.target = QStringLiteral("North Europe");
+    e.lang = QStringLiteral("Finnish");
     return db.insertEntry(e);
 }
 
@@ -295,6 +300,40 @@ private slots:
         QCOMPARE(rigStatus(w), notAnswering(rig.port()));
     }
 
+    // Follow rig unticked while the rig answers (listening online, say): a
+    // double-click tunes the display and the online receiver, with the
+    // station's mode, and leaves the rig and the tick alone.
+    void tuneWithFollowOffLeavesTheRigAlone()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* client = w.findChild<RigClient*>();
+        auto* player = w.findChild<KiwiPlayer*>();
+        QVERIFY(client && player);
+        QTRY_VERIFY_WITH_TIMEOUT(client->isAnswering(), 5000);
+        QVERIFY(!followRig(w)->isChecked());
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 070.000 kHz"));
+        player->setManualMode(QStringLiteral("USB"));
+
+        const int before = rig.received.size();
+        QVERIFY(doubleClickStation(w, kStationKHz));
+        QCOMPARE(shownFrequency(w), QStringLiteral("7 130.000 kHz"));
+        QVERIFY(!followRig(w)->isChecked());
+        QCOMPARE(shownMode(w), QStringLiteral("manual"));
+        QCOMPARE(player->manualMode(), QStringLiteral("AM"));   // the station's mode
+        QTest::qWait(500);   // a command on its way would have arrived by now
+        for (int i = before; i < rig.received.size(); ++i)
+        {
+            const QString& cmd = rig.received.at(i);
+            QVERIFY2(!cmd.startsWith(QLatin1String("F ")) && !cmd.startsWith(QLatin1String("M ")), qPrintable(cmd));
+        }
+        QCOMPARE(rig.hz, qint64(7125000));   // the rig did not move
+    }
+
     // rigctld restarting (the connection drops and comes back within the
     // silence timeout) is not the rig going away: no warning, and the
     // online receiver keeps taking the rig's mode.
@@ -331,6 +370,88 @@ private slots:
         }
         QVERIFY(rigStatus(w).isEmpty());
         QVERIFY(!modeBox->isEnabled());
+    }
+
+    // The dial view loads a thousand entries either side of the tuned
+    // frequency; scrolled near an end, it loads more around what is on
+    // screen, without moving the rows on screen or the tuning, as far as
+    // the database goes.
+    void dialRefillsWhenScrolledToItsEnd()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            StationList many;   // one station per kHz from 5000 to 7999
+            for (int k = 5000; k < 8000; ++k)
+            {
+                StationEntry e;
+                e.source = userSourceId();
+                e.kHz = k;
+                e.station = QStringLiteral("S%1").arg(k);
+                e.startMin = 0;
+                e.endMin = 1440;
+                many << e;
+            }
+            QVERIFY(db.replaceSource(userSourceId(), many));
+        }
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* table = w.findChild<QTableView*>(QStringLiteral("stationTable"));
+        QVERIFY(table);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 070.000 kHz"));
+        auto loaded = [table]() {
+            double lo = 1e12, hi = -1.0;
+            for (int r = 0; r < table->model()->rowCount(); ++r)
+            {
+                const QString name = table->model()->index(r, StationModel::ColStation).data().toString();
+                if (name.isEmpty())
+                    continue;   // a blank row at an end
+                const double kHz = table->model()->index(r, StationModel::ColFrequency).data(StationModel::SortRole).toDouble();
+                lo = qMin(lo, kHz);
+                hi = qMax(hi, kHz);
+            }
+            return qMakePair(lo, hi);
+        };
+        QCOMPARE(loaded(), qMakePair(5070.0, 7069.0));   // a thousand either side
+        QScrollBar* bar = table->verticalScrollBar();
+
+        // to the bottom end: more below comes in, the tuning stays
+        bar->setValue(bar->maximum());
+        QTRY_VERIFY_WITH_TIMEOUT(loaded().second > 7500.0, 3000);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 070.000 kHz"));
+        QVERIFY(!followRig(w)->isChecked());
+        // the screen stays on real stations near the end it reached, not
+        // in the blank rows, and the database's end is the end
+        auto midKHz = [table]() {
+            const int mid = table->rowAt(table->viewport()->height() / 2);
+            return mid < 0 ? -1.0 : table->model()->index(mid, StationModel::ColFrequency).data(StationModel::SortRole).toDouble();
+        };
+        QVERIFY2(midKHz() > 7000.0, qPrintable(QString::number(midKHz())));
+        bar->setValue(bar->maximum());
+        QTRY_COMPARE_WITH_TIMEOUT(loaded().second, 7999.0, 3000);
+        bar->setValue(bar->maximum());
+        QTest::qWait(200);
+        QCOMPARE(loaded().second, 7999.0);
+        // at the very end the last station is on screen, above the blank rows
+        bool lastVisible = false;
+        for (int r = 0; r < table->model()->rowCount(); ++r)
+            if (table->model()->index(r, StationModel::ColStation).data().toString() == QLatin1String("S7999"))
+            {
+                const int y = table->rowViewportPosition(r);
+                lastVisible = y >= 0 && y < table->viewport()->height();
+            }
+        QVERIFY(lastVisible);
+
+        // and back up past the top end
+        bar->setValue(bar->minimum());
+        QTRY_VERIFY_WITH_TIMEOUT(loaded().first < 6000.0, 3000);
+        bar->setValue(bar->minimum());
+        QTRY_COMPARE_WITH_TIMEOUT(loaded().first, 5000.0, 3000);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 070.000 kHz"));
     }
 
     // The manual frequency is saved once tuning pauses; closing the window
@@ -435,6 +556,123 @@ private slots:
         QCOMPARE(edit->text(), QStringLiteral("7300,5"));
         QTest::keyClick(edit, Qt::Key_Return);
         QCOMPARE(shownFrequency(w), QStringLiteral("7 300.500 kHz"));
+    }
+
+    // Search results can be sorted by a click on a column title: up, down,
+    // and back to the usual order. Refining the search keeps the sorting,
+    // Escape leaves the search and the dial is in frequency order again,
+    // its titles not clickable.
+    void searchResultsSortByColumn()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            const QList<std::tuple<double, const char*, int, int>> more = {
+                {7200, "Radio Alpha", 18 * 60, 19 * 60},
+                {6100, "Radio Bravo", 6 * 60, 7 * 60},
+                {9400, "Radio Charlie", 12 * 60, 13 * 60}};
+            for (const auto& [kHz, name, start, end] : more)
+            {
+                StationEntry e;
+                e.source = userSourceId();
+                e.kHz = kHz;
+                e.station = QString::fromLatin1(name);
+                e.startMin = start;
+                e.endMin = end;
+                QVERIFY(db.insertEntry(e));
+            }
+        }
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* search = w.findChild<QLineEdit*>(QStringLiteral("search"));
+        auto* table = w.findChild<QTableView*>(QStringLiteral("stationTable"));
+        QVERIFY(search && table);
+        table->setColumnHidden(StationModel::ColTime, false);
+        QHeaderView* header = table->horizontalHeader();
+        auto order = [table]() {
+            QStringList names;
+            for (int r = 0; r < table->model()->rowCount(); ++r)
+            {
+                const QString name = table->model()->index(r, StationModel::ColStation).data().toString();
+                if (!name.isEmpty())   // the dial's blank rows
+                    names << name;
+            }
+            return names;
+        };
+        auto clickTitle = [header](int column) {
+            const int x = header->sectionViewportPosition(column) + header->sectionSize(column) / 2;
+            QTest::mouseClick(header->viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(x, header->height() / 2));
+        };
+
+        // the dial: frequency order, and a click on a title changes nothing
+        QVERIFY(!header->sectionsClickable());
+        const QStringList dial = order();
+        QCOMPARE(dial, (QStringList{"Radio Bravo", "Test Radio", "Radio Alpha", "Radio Charlie"}));
+        clickTitle(StationModel::ColTime);
+        QCOMPARE(order(), dial);
+
+        search->setFocus();
+        QTest::keyClicks(search, QStringLiteral("radio"));
+        QVERIFY(header->sectionsClickable());
+        const QStringList found = order();
+        QCOMPARE(found.size(), 4);
+        QVERIFY(!header->isSortIndicatorShown());
+
+        clickTitle(StationModel::ColTime);   // by start time
+        QCOMPARE(order(), (QStringList{"Test Radio", "Radio Bravo", "Radio Charlie", "Radio Alpha"}));
+        QVERIFY(header->isSortIndicatorShown());
+        QCOMPARE(header->sortIndicatorSection(), int(StationModel::ColTime));
+        clickTitle(StationModel::ColTime);   // the other way round
+        QCOMPARE(order(), (QStringList{"Radio Alpha", "Radio Charlie", "Radio Bravo", "Test Radio"}));
+        clickTitle(StationModel::ColTime);   // and the usual order again
+        QCOMPARE(order(), found);
+        QVERIFY(!header->isSortIndicatorShown());
+
+        clickTitle(StationModel::ColStation);   // by name, then refine the search: still by name
+        QCOMPARE(order(), (QStringList{"Radio Alpha", "Radio Bravo", "Radio Charlie", "Test Radio"}));
+        QTest::keyClicks(search, QStringLiteral(" !bravo"));
+        QCOMPARE(order(), (QStringList{"Radio Alpha", "Radio Charlie", "Test Radio"}));
+        QVERIFY(header->isSortIndicatorShown());
+
+        QTest::keyClick(search, Qt::Key_Escape);   // out of the search
+        QVERIFY(search->text().isEmpty());
+        QVERIFY(!header->sectionsClickable());
+        QVERIFY(!header->isSortIndicatorShown());
+        QCOMPARE(order(), dial);
+        // a new search starts in the usual order
+        QTest::keyClicks(search, QStringLiteral("radio"));
+        QCOMPARE(order(), found);
+    }
+
+    // The audio-in-hand bar sits in the status bar's left corner, hidden
+    // until the online receiver plays, and follows what the player tells.
+    void bufferBarInTheCorner()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port()));
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* bar = w.findChild<BufferBar*>(QStringLiteral("bufferBar"));
+        QVERIFY(bar);
+        QVERIFY(!bar->isVisible());
+        QWidget* statusBar = w.statusBar();
+        QVERIFY(bar->parentWidget() == statusBar || bar->parentWidget()->parentWidget() == statusBar);
+        // the first thing in the status bar, left of the rig text
+        auto* rigText = w.findChild<QLabel*>(QStringLiteral("rigStatus"));
+        QVERIFY(rigText);
+        QVERIFY(bar->geometry().left() <= rigText->geometry().left());
+        auto* player = w.findChild<KiwiPlayer*>();
+        QVERIFY(player);
+        // not playing: whatever is told, nothing shows
+        emit player->audioInHandChanged(0.4);
+        QVERIFY(!bar->isVisible());
+        QCOMPARE(bar->seconds(), 0.0);
     }
 
     // A right-click on the table header opens the column menu once (it was

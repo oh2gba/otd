@@ -41,7 +41,7 @@ void StationModel::setEntries(const StationList& entries, double centreKHz)
         Row r;
         r.entry = e;
         r.delta = e.kHz - centreKHz;
-        r.status = Schedule::status(e, m_lastEval);
+        r.status = Schedule::status(e, m_lastEval, m_db->weekdays(e));
         m_rows.push_back(r);
     }
     sortRows();
@@ -91,7 +91,7 @@ void StationModel::setDialEntries(const StationList& entries, double centreKHz)
         Row r;
         r.entry = e;
         r.delta = e.kHz - centreKHz;
-        r.status = Schedule::status(e, m_lastEval);
+        r.status = Schedule::status(e, m_lastEval, m_db->weekdays(e));
         m_rows.push_back(r);
     }
     // blank rows at both ends; their frequencies keep them there when sorting
@@ -134,7 +134,7 @@ void StationModel::refreshStatus(const QDateTime& utc)
     {
         if (r.blank)
             continue;
-        const Schedule::OnAir s = Schedule::status(r.entry, utc);
+        const Schedule::OnAir s = Schedule::status(r.entry, utc, m_db->weekdays(r.entry));
         if (s != r.status)
         {
             r.status = s;
@@ -262,44 +262,48 @@ QString StationModel::sourceLabel(const QString& id)
     return id.toUpper();
 }
 
-QString StationModel::languageOf(const StationEntry& e) const
+namespace
 {
-    if (!e.langText.isEmpty())
-        return e.langText;
-    const QString name = m_db->languageName(e.lang);
-    const int colon = name.indexOf(QLatin1Char(':'));
-    return colon > 0 ? name.left(colon) : name;
+// a validity date as the sources give it: DDMM (EiBi), DDMMYY (HFCC)
+QString dateText(const QString& d)
+{
+    if (d.size() == 4)
+        return QStringLiteral("%1.%2.").arg(d.left(2), d.mid(2, 2));
+    if (d.size() == 6)
+        return QStringLiteral("%1.%2.20%3").arg(d.left(2), d.mid(2, 2), d.mid(4, 2));
+    return d;
 }
-
-QString StationModel::siteOf(const StationEntry& e) const
-{
-    return e.siteText.isEmpty() ? m_db->siteName(e.itu, e.site) : e.siteText;
 }
 
 QString StationModel::tooltip(const Row& r) const
 {
+    // the list has the short names; here also what the codes stand for
     const StationEntry& e = r.entry;
     QString t = QStringLiteral("<b>%1</b><br>%2 kHz, %3 UTC")
-                    .arg(e.station.toHtmlEscaped())
+                    .arg(m_db->stationOf(e).toHtmlEscaped())
                     .arg(e.kHz, 0, 'f', e.kHz == qRound(e.kHz) ? 0 : 3)
                     .arg(Schedule::timeWindow(e));
-    if (!e.days.isEmpty())
-        t += tr("<br>Days: %1").arg(e.days.toHtmlEscaped());
-    const QString lang = e.langText.isEmpty() ? m_db->languageName(e.lang) : e.langText;
+    const QString days = m_db->daysOf(e);
+    if (!days.isEmpty())
+        t += tr("<br>Days: %1").arg(days.toHtmlEscaped());
+    const QString lang = m_db->languageOf(e, true);
     if (!lang.isEmpty())
         t += tr("<br>Language: %1").arg(lang.toHtmlEscaped());
-    if (!e.mode.isEmpty())
-        t += tr("<br>Mode: %1").arg(e.mode);
-    t += tr("<br>Country: %1").arg(m_db->countryName(e.itu).toHtmlEscaped());
-    const QString site = siteOf(e);
+    const QString mode = StationDb::modeOf(e);
+    if (!mode.isEmpty())
+        t += tr("<br>Mode: %1").arg(mode);
+    t += tr("<br>Country: %1").arg(m_db->countryOf(e).toHtmlEscaped());
+    const QString site = m_db->siteOf(e);
     if (!site.isEmpty())
         t += tr("<br>Transmitter: %1").arg(site.toHtmlEscaped());
-    if (!e.target.isEmpty())
-        t += tr("<br>Target: %1").arg(m_db->targetName(e.target).toHtmlEscaped());
-    if (!e.remarks.isEmpty())
-        t += tr("<br>Remarks: %1").arg(e.remarks.toHtmlEscaped());
+    const QString target = m_db->targetOf(e, true);
+    if (!target.isEmpty())
+        t += tr("<br>Target: %1").arg(target.toHtmlEscaped());
+    const QString remarks = StationDb::remarksOf(e);
+    if (!remarks.isEmpty())
+        t += tr("<br>Remarks: %1").arg(remarks.toHtmlEscaped());
     if (!e.startDate.isEmpty() || !e.stopDate.isEmpty())
-        t += tr("<br>Valid: %1 - %2").arg(e.startDate, e.stopDate);
+        t += tr("<br>Valid: %1 - %2").arg(dateText(e.startDate), dateText(e.stopDate));
     if (!e.lastHeard.isEmpty())
         t += tr("<br>Last heard: %1/20%2").arg(e.lastHeard.left(2), e.lastHeard.mid(2));
     t += tr("<br>Source: %1, status: %2").arg(sourceLabel(e.source), Schedule::statusText(r.status));
@@ -340,20 +344,19 @@ QVariant StationModel::data(const QModelIndex& index, int role) const
         }
         case ColFrequency: return QString::number(e.kHz, 'f', e.kHz == qRound(e.kHz) ? 0 : 3);
         case ColStatus:    return Schedule::statusText(r.status);
-        case ColMode:      return e.mode;
-        case ColStation:   return e.station;
-        case ColLanguage:  return languageOf(e);
+        case ColMode:      return StationDb::modeOf(e);
+        case ColStation:   return m_db->stationOf(e);
+        case ColLanguage:  return m_db->languageOf(e);
         case ColTime:      return Schedule::timeWindow(e);
-        case ColDays:      return e.days;
-        case ColCountry:   return m_db->countryName(e.itu);
-        case ColSite:      return siteOf(e);
-        case ColTarget:    return e.source == QLatin1String("hfcc") ? e.target
-                                                                    : m_db->targetName(e.target);
+        case ColDays:      return m_db->daysOf(e);
+        case ColCountry:   return m_db->countryOf(e);
+        case ColSite:      return m_db->siteOf(e);
+        case ColTarget:    return m_db->targetOf(e);
         case ColLastHeard: return e.lastHeard.isEmpty()
                                   ? QString()
                                   : QStringLiteral("%1/%2").arg(e.lastHeard.left(2), e.lastHeard.mid(2));
         case ColSource:    return sourceLabel(e.source);
-        case ColRemarks:   return e.remarks;
+        case ColRemarks:   return StationDb::remarksOf(e);
         }
         return QVariant();
 

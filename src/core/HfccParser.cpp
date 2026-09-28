@@ -64,7 +64,7 @@ HfccParser::Tables HfccParser::parseTables(const QByteArray& site, const QByteAr
     return t;
 }
 
-HfccParser::ParseResult HfccParser::parseSchedule(const QByteArray& data, const Tables& tables)
+HfccParser::ParseResult HfccParser::parseSchedule(const QByteArray& data)
 {
     ParseResult result;
     const QStringList lines = decodeLines(data);
@@ -125,53 +125,18 @@ HfccParser::ParseResult HfccParser::parseSchedule(const QByteArray& data, const 
         e.kHz = kHz;
         e.startMin = (start / 100) * 60 + start % 100;
         e.endMin = (stop / 100) * 60 + stop % 100;
-        if (e.startMin == 0 && e.endMin == 0)
-            e.endMin = 1440;
-
-        const QString days = field(DAYS);
-        e.days = (days == QLatin1String("1234567") || days.isEmpty()) ? QString() : days;
-
+        e.days = field(DAYS);
         e.itu = field(ADM);
-        const QString brc = field(BRC);
-        e.station = tables.broadcasters.value(brc, brc);
+        e.station = field(BRC);   // the broadcaster's code; its name is looked up
         e.lang = field(LANGUAGE);
-        e.langText = tables.languages.value(e.lang);
-
         e.site = field(LOC);
-        const auto siteIt = tables.sites.constFind(e.site);
-        if (siteIt != tables.sites.cend())
-        {
-            e.siteText = siteIt->name;
-            if (!siteIt->adm.isEmpty() && siteIt->adm != e.itu)
-                e.siteText += QStringLiteral(" (%1)").arg(tables.admins.value(siteIt->adm, siteIt->adm));
-        }
-
         e.target = field(CIRAF);
-        const QString fdate = field(FDATE), tdate = field(TDATE);
-        if (fdate.size() == 6 && tdate.size() == 6)
-        {
-            e.startDate = fdate.left(4);
-            e.stopDate = tdate.left(4);
-        }
-
-        QStringList remarks;
-        const QString power = field(POWR);
-        if (!power.isEmpty())
-            remarks << power + QStringLiteral(" kW");
-        const QString az = field(AZIMUTH);
-        if (!az.isEmpty() && az != QLatin1String("0"))
-            remarks << QStringLiteral("az %1°").arg(az);
-        const QString mod = field(MOD);
-        if (mod == QLatin1String("D"))
-            e.mode = QStringLiteral("AM");     // double sideband
-        else if (mod == QLatin1String("N"))
-            e.mode = QStringLiteral("DRM");    // digital
-        else if (!mod.isEmpty())
-            remarks << QStringLiteral("mod %1").arg(mod);
-        const QString notes = field(NOTES);
-        if (!notes.isEmpty())
-            remarks << notes;
-        e.remarks = remarks.join(QStringLiteral(", "));
+        e.startDate = field(FDATE);
+        e.stopDate = field(TDATE);
+        e.power = field(POWR);
+        e.azimuth = field(AZIMUTH);
+        e.mode = field(MOD);
+        e.remarks = field(NOTES);
 
         result.entries.push_back(e);
     }

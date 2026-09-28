@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "MainWindow.h"
+#include "core/Logging.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -47,7 +48,15 @@ int main(int argc, char* argv[])
                                                  "desktop's (light|dark)."),
                                   QStringLiteral("scheme"));
     parser.addOption(paletteOpt);
+    QCommandLineOption logOpt(QStringLiteral("log"),
+                              QStringLiteral("Write what the program and Qt report to <file>, in detail "
+                                             "(for looking into a problem)."),
+                              QStringLiteral("file"));
+    parser.addOption(logOpt);
     parser.process(app);
+    if (parser.isSet(logOpt) && !Logging::toFile(parser.value(logOpt)))
+        qWarning("could not open the log file %s", qPrintable(parser.value(logOpt)));
+    qInfo("otd %s, Qt %s", OTD_VERSION, qVersion());
 
     if (parser.isSet(paletteOpt))
     {

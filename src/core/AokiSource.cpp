@@ -96,7 +96,11 @@ void AokiSource::fetchZip(const QUrl& url, const QString& season)
             return;
         }
         emit progress(tr("Storing %1 Aoki entries ...").arg(parsed.entries.size()));
-        if (!store(season, parsed.entries, dl.lastModified))
+        // how this list numbers the days, for reading its days column
+        const QHash<QString, QHash<QString, QString>> days = {
+            {QStringLiteral("days"),
+             {{QStringLiteral("1"), parsed.sundayFirst ? QStringLiteral("Sunday") : QStringLiteral("Monday")}}}};
+        if (!m_db->replaceCodes(id(), days) || !store(season, parsed.entries, dl.lastModified))
         {
             finish(false, tr("Database error: %1").arg(m_db->lastError()));
             return;

@@ -37,6 +37,19 @@
   <categories><category>HamRadio</category><category>Network</category></categories>
   <keywords><keyword>shortwave</keyword><keyword>SWL</keyword><keyword>rigctld</keyword><keyword>EiBi</keyword></keywords>
   <releases>
+    <release version="1.6.4" date="2026-09-28">
+      <description>
+        <ul>
+          <li>Search finds languages, transmitter sites and target areas by name in every list, and target areas read as names: North Europe, or HFCC's zones as regions</li>
+          <li>Search terms for one column: target:, language:, country:, site:, station:, mode:; search results sort by a click on a column title</li>
+          <li>The imported lists are kept as published and read through lookup tables; the first start fetches them again</li>
+          <li>KiwiSDR: sound on a Windows without Media Foundation, the proxy receivers play, receivers that limit programs accept otd, the reason for a stop is clearer, and a bar in the status bar shows the audio in hand</li>
+          <li>KiwiSDR: a globe button opens the receiver's own web page; the out-of-range message clears when tuning back</li>
+          <li>With Follow rig off, a double-click tunes otd and the online receiver, not the rig; the dial view loads more when scrolled to its end</li>
+          <li>--log writes what the program does to a file, for looking into a problem</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.6.3" date="2026-09-28">
       <description>
         <ul>

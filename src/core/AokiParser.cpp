@@ -45,7 +45,6 @@ AokiParser::ParseResult AokiParser::parse(const QByteArray& data)
     const QStringList lines = text.split(QLatin1Char('\n'));
 
     Layout layout;
-    bool sundayFirst = true;
     static const QRegularExpression timeRe(QStringLiteral("^(\\d{4})-(\\d{4})$"));
 
     for (const QString& rawLine : lines)
@@ -67,7 +66,7 @@ AokiParser::ParseResult AokiParser::parse(const QByteArray& data)
             {
                 result.title = raw.trimmed();
                 if (raw.contains(QLatin1String("Day 1 = Monday")))
-                    sundayFirst = false;
+                    result.sundayFirst = false;
             }
             continue;
         }
@@ -97,67 +96,18 @@ AokiParser::ParseResult AokiParser::parse(const QByteArray& data)
         const int s = tm.captured(1).toInt(), t = tm.captured(2).toInt();
         e.startMin = (s / 100) * 60 + s % 100;
         e.endMin = (t / 100) * 60 + t % 100;
-        if (e.startMin == 0 && e.endMin == 0)
-            e.endMin = 1440;
-
-        // Days: "1234567" / ".234567" / "   1   ", day 1 = Sunday in Aoki files
-        QString days;
-        const QString dayField = slice(raw, layout.days, layout.lang);
-        for (const QChar c : dayField)
-        {
-            if (!c.isDigit())
-                continue;
-            int d = c.digitValue();
-            if (sundayFirst)
-                d = (d == 1) ? 7 : d - 1;
-            days.append(QChar(QLatin1Char('0' + d)));
-        }
-        if (days.size() == 7 || days.isEmpty())
-            e.days.clear();
-        else
-        {
-            QList<QChar> sorted;
-            for (const QChar c : days)
-                sorted.append(c);
-            std::sort(sorted.begin(), sorted.end());
-            for (const QChar c : sorted)
-                e.days.append(c);
-        }
-
+        // "1234567", ".234567", "   1   ": the file's own day numbers
+        // (day 1 is Sunday unless the title says otherwise: sundayFirst)
+        e.days = slice(raw, layout.days, layout.lang);
         e.station = slice(raw, layout.station, layout.utc);
-        e.langText = slice(raw, layout.lang, layout.pow);
+        e.lang = slice(raw, layout.lang, layout.pow);
         e.itu = slice(raw, layout.adm, layout.latlon);
-        e.siteText = slice(raw, layout.location, layout.adm);
-
-        QStringList remarks;
-        const QString power = slice(raw, layout.pow, layout.azi);
-        if (!power.isEmpty())
-            remarks << power + QStringLiteral(" kW");
-        const QString az = slice(raw, layout.azi, layout.location);
-        if (!az.isEmpty() && az != QLatin1String("ND"))
-            remarks << QStringLiteral("az %1°").arg(az);
-        const QString rem = slice(raw, layout.remarks, -1);
-        if (!rem.isEmpty())
-            remarks << rem;
-        if (flag == QLatin1Char('*'))
-            remarks << QStringLiteral("*");
-        e.remarks = remarks.join(QStringLiteral(", "));
-
-        if (flag == QLatin1Char('x'))
-            e.persistence = 8;   // marked off air
-
-        const QString upperRemarks = rem.toUpper();
-        if (e.langText.contains(QLatin1String("(Digital)")) || e.station.contains(QLatin1String("DRM"))
-            || upperRemarks.contains(QLatin1String("DRM")))
-            e.mode = QStringLiteral("DRM");
-        else if (upperRemarks.contains(QLatin1String("USB")))
-            e.mode = QStringLiteral("USB");
-        else if (upperRemarks.contains(QLatin1String("LSB")))
-            e.mode = QStringLiteral("LSB");
-        else if (upperRemarks.contains(QLatin1String("CW")) || e.langText == QLatin1String("A1A"))
-            e.mode = QStringLiteral("CW");
-        else
-            e.mode = QStringLiteral("AM");
+        e.site = slice(raw, layout.location, layout.adm);
+        e.power = slice(raw, layout.pow, layout.azi);
+        e.azimuth = slice(raw, layout.azi, layout.location);
+        e.remarks = slice(raw, layout.remarks, -1);
+        if (flag == QLatin1Char('*') || flag == QLatin1Char('x'))
+            e.flag = QString(flag);
 
         result.entries.push_back(e);
     }

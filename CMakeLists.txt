@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(otd VERSION 1.6.3 LANGUAGES C CXX)
+project(otd VERSION 1.6.4 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,6 +47,10 @@ add_library(otd_core STATIC
   src/core/KiwiClient.h      src/core/KiwiClient.cpp
   src/core/KiwiDirectory.h   src/core/KiwiDirectory.cpp
   src/core/TraficomSource.h  src/core/TraficomSource.cpp
+  src/core/Ciraf.h           src/core/Ciraf.cpp
+  src/core/PcmResampler.h    src/core/PcmResampler.cpp
+  src/core/PcmQueue.h        src/core/PcmQueue.cpp
+  src/core/Logging.h         src/core/Logging.cpp
   src/core/core.qrc
 )
 target_include_directories(otd_core PUBLIC src)
@@ -65,6 +69,7 @@ add_library(otd_app OBJECT
   src/app/StationModel.h     src/app/StationModel.cpp
   src/app/DialScale.h        src/app/DialScale.cpp
   src/app/KiwiPlayer.h       src/app/KiwiPlayer.cpp
+  src/app/BufferBar.h        src/app/BufferBar.cpp
   src/app/SettingsDialog.h   src/app/SettingsDialog.cpp
   src/app/StationEditDialog.h src/app/StationEditDialog.cpp
   src/app/MyStationsDialog.h src/app/MyStationsDialog.cpp

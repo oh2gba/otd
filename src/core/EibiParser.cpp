@@ -108,7 +108,6 @@ EibiParser::ParseResult EibiParser::parseCsv(const QByteArray& data)
         e.stopDate = m.captured(1);
         e.lastHeard = m.captured(2);
 
-        e.mode = guessMode(e);
         result.entries.push_back(e);
     }
 
