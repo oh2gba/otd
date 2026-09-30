@@ -770,6 +770,7 @@ private slots:
             QVERIFY(box->text().contains(QLatin1String("What's new in On The Dial")));
             QVERIFY(box->text().contains(QLatin1String("The Buzzer")));
             QVERIFY(!box->text().contains(QLatin1String("refactor"), Qt::CaseInsensitive));
+            QVERIFY(box->text().contains(QLatin1String("thank you to everyone who sent feedback")));
             box->accept();
         }
         MainWindow w(dir.path());

@@ -176,9 +176,13 @@ void MainWindow::showWhatsNew()
     box->setAttribute(Qt::WA_DeleteOnClose);
     box->setWindowTitle(tr("What's new"));
     box->setTextFormat(Qt::RichText);
-    box->setText(tr("<h3>What's new in On The Dial %1</h3><ul>%2</ul>")
+    box->setText(tr("<h3>What's new in On The Dial %1</h3>"
+                    "<p>Thanks for updating! Here is what changed:</p><ul>%2</ul>"
+                    "<p>A big thank you to everyone who sent feedback: several of these changes "
+                    "come straight from your messages. Keep them coming!</p>")
                      .arg(QCoreApplication::applicationVersion(), items));
     box->setStandardButtons(QMessageBox::Ok);
+    box->button(QMessageBox::Ok)->setText(tr("Got it"));
     box->open();   // not blocking: the program goes on starting behind it
 }
 

@@ -7,13 +7,14 @@ QStringList ReleaseNotes::current()
 {
     auto tr = [](const char* text) { return QCoreApplication::translate("ReleaseNotes", text); };
     return {
-        tr("A first start opens on The Buzzer, 4625 kHz, with Follow rig off, On air only on, and a free "
-           "public KiwiSDR receiver picked at random"),
-        tr("Shift+Down and Shift+Up tune to the next station down or up the list, with or without a rig; "
-           "the mouse wheel over a digit of the big frequency tunes the rig too"),
-        tr("Stations in the aeronautical, maritime and amateur bands whose schedule gives no mode are shown "
-           "as USB instead of AM"),
-        tr("KiwiSDR: opening the receiver's own web page while listening to it hands the connection to the "
-           "browser, as most receivers take one connection per address"),
+        tr("Hop from station to station: Shift+Down and Shift+Up jump to the next station in the list, "
+           "with or without a radio connected."),
+        tr("Turning the mouse wheel over a digit of the big frequency now tunes your radio too."),
+        tr("Aircraft, ship and other utility stations now show USB instead of AM, so the online receiver "
+           "plays them the way they are sent."),
+        tr("Opening a KiwiSDR's web page while you listen to it now hands the stream over to your browser, "
+           "so the two no longer fight over the one connection most receivers allow."),
+        tr("New installs start on The Buzzer (4625 kHz), which is on the air day and night, with a free "
+           "online receiver already picked, so there is something to hear right away."),
     };
 }
