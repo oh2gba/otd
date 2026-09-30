@@ -11,7 +11,7 @@
 #include "DialScale.h"
 #include "KiwiPlayer.h"
 #include "MainWindow.h"
-#include "StationModel.h"
+#include "core/StationModel.h"
 #include "core/EibiParser.h"
 #include "core/RigClient.h"
 #include "core/ScheduleSource.h"

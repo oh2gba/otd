@@ -24,7 +24,8 @@ target_include_directories(miniz PUBLIC third_party/miniz)
 target_compile_definitions(miniz PUBLIC MINIZ_NO_STDIO MINIZ_NO_TIME)
 set_target_properties(miniz PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# ---- core library: no GUI, unit-testable -------------------------------
+# ---- core library: no widgets, unit-testable ---------------------------
+# (Qt Gui for the station list model's colours and fonts; no window in it)
 add_library(otd_core STATIC
   src/core/Station.h
   src/core/EibiParser.h      src/core/EibiParser.cpp
@@ -38,6 +39,7 @@ add_library(otd_core STATIC
   src/core/BandLine.h     src/core/BandLine.cpp
   src/core/DialMarks.h    src/core/DialMarks.cpp
   src/core/Format.h       src/core/Format.cpp
+  src/core/StationModel.h    src/core/StationModel.cpp
   src/core/RigClient.h       src/core/RigClient.cpp
   src/core/RigctldLauncher.h src/core/RigctldLauncher.cpp
   src/core/ScheduleSource.h  src/core/ScheduleSource.cpp
@@ -59,7 +61,7 @@ add_library(otd_core STATIC
   src/core/core.qrc
 )
 target_include_directories(otd_core PUBLIC src)
-target_link_libraries(otd_core PUBLIC Qt6::Core Qt6::Network Qt6::Sql Qt6::WebSockets PRIVATE miniz)
+target_link_libraries(otd_core PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Sql Qt6::WebSockets PRIVATE miniz)
 target_compile_definitions(otd_core PUBLIC
   OTD_VERSION="${PROJECT_VERSION}"
   QT_NO_CAST_FROM_ASCII_DISABLED)
@@ -71,7 +73,6 @@ target_compile_definitions(otd_core PUBLIC
 # nothing refers to them by name.
 add_library(otd_app OBJECT
   src/app/MainWindow.h       src/app/MainWindow.cpp
-  src/app/StationModel.h     src/app/StationModel.cpp
   src/app/DialScale.h        src/app/DialScale.cpp
   src/app/KiwiPlayer.h       src/app/KiwiPlayer.cpp
   src/app/KiwiAudio.h        src/app/KiwiAudio.cpp

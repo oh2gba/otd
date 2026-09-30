@@ -2,7 +2,7 @@
 // What the station list shows for an entry. The rows keep the codes the
 // sources publish (EiBi's, HFCC's); the list and the tooltip show them
 // through the lookup tables.
-#include "StationModel.h"
+#include "core/StationModel.h"
 #include "core/StationDb.h"
 
 #include <QTemporaryDir>

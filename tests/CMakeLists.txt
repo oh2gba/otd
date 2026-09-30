@@ -21,6 +21,7 @@ otd_test(test_traficom)
 otd_test(test_rigclient)
 otd_test(test_appsettings)   # AppSettings in the database
 otd_test(test_session)       # the rules of tuning and the list, against a fake rigctld
+otd_test(test_stationmodel)  # what the station list shows for an entry
 
 # The app's own classes (settings, KiwiSDR player, main window) come from
 # the otd_app object library, so these tests build what otd itself runs.
@@ -35,7 +36,6 @@ endfunction()
 otd_app_test(test_settings)     # the Settings dialog's result
 otd_app_test(test_kiwiplayer)   # the player against a fake KiwiSDR on localhost
 otd_app_test(test_mainwindow)   # the real main window against a fake rigctld
-otd_app_test(test_stationmodel)  # what the station list shows for an entry
 otd_app_test(test_kiwisound)     # the player through a real (silent) sound server, PulseAudio
 
 # manual tool, not a test: connects to a KiwiSDR and reports what arrives

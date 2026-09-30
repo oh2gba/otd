@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "MyStationsDialog.h"
 #include "StationEditDialog.h"
-#include "StationModel.h"
+#include "core/StationModel.h"
 #include "core/StationDb.h"
 #include "core/UserList.h"
 

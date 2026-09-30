@@ -3,7 +3,7 @@
 #include "BufferBar.h"
 #include "MyStationsDialog.h"
 #include "StationEditDialog.h"
-#include "StationModel.h"
+#include "core/StationModel.h"
 #include "core/DialMarks.h"
 #include "core/Format.h"
 #include "core/KiwiDirectory.h"
