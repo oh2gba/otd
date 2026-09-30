@@ -32,6 +32,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QNetworkProxy>
 #include <QScrollBar>
 #include <QStatusBar>
@@ -74,6 +75,7 @@ bool seed(const QString& dir, quint16 rigPort, bool followRig = true)
     s.rigPort = rigPort;
     s.pollIntervalMs = 100;
     s.save(&db);
+    db.setMeta(QStringLiteral("app.version"), QStringLiteral(OTD_VERSION));   // no "What's new" in the way
     StationEntry e;
     e.source = userSourceId();
     e.kHz = kStationKHz;
@@ -744,6 +746,37 @@ private slots:
         // warning is still there and still names it
         QTest::qWait(kSilenceMs + 1000);
         QCOMPARE(rigStatus(w), notAnswering(second));
+    }
+
+    // After an upgrade the window says once what is new in this version;
+    // the next start does not.
+    void whatsNewOnceAfterUpgrade()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            db.setMeta(QStringLiteral("app.version"), QStringLiteral("1.6.4"));
+        }
+        {
+            MainWindow w(dir.path());
+            w.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&w));
+            QTRY_VERIFY_WITH_TIMEOUT(w.findChild<QMessageBox*>(QStringLiteral("whatsNew")), 3000);
+            auto* box = w.findChild<QMessageBox*>(QStringLiteral("whatsNew"));
+            QTRY_VERIFY_WITH_TIMEOUT(box->isVisible(), 3000);
+            QVERIFY(box->text().contains(QLatin1String("What's new in On The Dial")));
+            QVERIFY(box->text().contains(QLatin1String("The Buzzer")));
+            QVERIFY(!box->text().contains(QLatin1String("refactor"), Qt::CaseInsensitive));
+            box->accept();
+        }
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QTest::qWait(300);
+        QVERIFY(!w.findChild<QMessageBox*>(QStringLiteral("whatsNew")));
     }
 
     // Follow rig ticked but nothing ever answers: once the rig counts as

@@ -6,6 +6,7 @@
 #include "core/StationModel.h"
 #include "core/DialMarks.h"
 #include "core/Format.h"
+#include "core/ReleaseNotes.h"
 #include "core/KiwiDirectory.h"
 #include "core/SigidWiki.h"
 #include "core/StationDb.h"
@@ -161,6 +162,24 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
 
     updateDbStatus();
     m_session->start(startKHz);
+    if (m_session->isUpgrade())
+        QTimer::singleShot(0, this, &MainWindow::showWhatsNew);   // once the window is on screen
+}
+
+void MainWindow::showWhatsNew()
+{
+    QString items;
+    for (const QString& note : ReleaseNotes::current())
+        items += QStringLiteral("<li>%1</li>").arg(note.toHtmlEscaped());
+    auto* box = new QMessageBox(this);
+    box->setObjectName(QStringLiteral("whatsNew"));
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    box->setWindowTitle(tr("What's new"));
+    box->setTextFormat(Qt::RichText);
+    box->setText(tr("<h3>What's new in On The Dial %1</h3><ul>%2</ul>")
+                     .arg(QCoreApplication::applicationVersion(), items));
+    box->setStandardButtons(QMessageBox::Ok);
+    box->open();   // not blocking: the program goes on starting behind it
 }
 
 void MainWindow::showUpdateResult(const UpdateCheck::Result& r)

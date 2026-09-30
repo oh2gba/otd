@@ -63,6 +63,7 @@ private slots:
     void openSettings();
     void tick();
     void about();
+    void showWhatsNew();   // once, after an upgrade
     void addMyStation();
     void openMyStations();
     void tableContextMenu(const QPoint& pos);

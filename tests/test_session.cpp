@@ -9,6 +9,7 @@
 #include "core/DialMarks.h"
 #include "core/EibiParser.h"
 #include "core/Format.h"
+#include "core/ReleaseNotes.h"
 #include "core/RigClient.h"
 #include "core/ScheduleSource.h"
 #include "core/Session.h"
@@ -116,6 +117,54 @@ private slots:
     void initTestCase()
     {
         QLocale::setDefault(QLocale::c());
+    }
+
+    // An upgrade is told once, on an install that has run before; a fresh
+    // install is not an upgrade, nor is going back to an older version.
+    void upgradeIsToldOnce()
+    {
+        const QString current = QStringLiteral(OTD_VERSION);
+        auto metaVersion = [](const QString& dir) {
+            StationDb db(dir + QStringLiteral("/stations.db"));
+            return db.open() ? db.meta(QStringLiteral("app.version")) : QString();
+        };
+        {   // fresh
+            QTemporaryDir dir;
+            {
+                Session s(dir.path());
+                QVERIFY(!s.isUpgrade());
+            }
+            QCOMPARE(metaVersion(dir.path()), current);
+            Session again(dir.path());
+            QVERIFY(!again.isUpgrade());
+        }
+        {   // an install from before 1.6.5: settings, no version kept
+            QTemporaryDir dir;
+            QVERIFY(seed(dir.path(), deadPort()));
+            {
+                Session s(dir.path());
+                QVERIFY(s.isUpgrade());
+                QVERIFY(s.previousVersion().isEmpty());
+            }
+            Session again(dir.path());
+            QVERIFY(!again.isUpgrade());
+        }
+        for (const auto& [before, upgrade] : QList<QPair<QString, bool>>{
+                 {QStringLiteral("1.6.4"), true}, {current, false}, {QStringLiteral("99.0"), false}})
+        {
+            QTemporaryDir dir;
+            QVERIFY(seed(dir.path(), deadPort()));
+            {
+                StationDb db(dir.path() + QStringLiteral("/stations.db"));
+                QVERIFY(db.open());
+                db.setMeta(QStringLiteral("app.version"), before);
+            }
+            Session s(dir.path());
+            QCOMPARE(s.isUpgrade(), upgrade);
+            QCOMPARE(s.previousVersion(), before);
+            QCOMPARE(metaVersion(dir.path()), current);
+        }
+        QVERIFY(!ReleaseNotes::current().isEmpty());
     }
 
     void frequencyTextAndDigitStep()

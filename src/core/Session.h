@@ -32,6 +32,11 @@ public:
     ~Session() override;
 
     bool isOpen() const { return m_open; }   // the database; lastError() says why not
+    // This start is the first of a newer version on an existing install
+    // (not a fresh one): the place for a "What's new". Told once; the
+    // version is remembered as seen when the Session opens.
+    bool isUpgrade() const { return m_upgrade; }
+    QString previousVersion() const { return m_previousVersion; }   // empty: before 1.6.5 kept it
     QString lastError() const;
     QString dataDir() const { return m_dataDir; }
 
@@ -143,6 +148,8 @@ private:
 
     QString m_dataDir;
     bool m_open = false;
+    bool m_upgrade = false;
+    QString m_previousVersion;
     AppSettings m_settings;
     StationDb* m_db = nullptr;
     QNetworkAccessManager* m_nam = nullptr;

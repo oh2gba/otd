@@ -22,6 +22,19 @@ Session::Session(const QString& dataDir, QObject* parent)
 {
     m_db = new StationDb(m_dataDir + QStringLiteral("/stations.db"), this);
     m_open = m_db->open();
+    // An install that has run before has settings stored; one that has run
+    // 1.6.5 or later also the version it last ran. A newer version than
+    // that, on an install that has run before, is an upgrade.
+    {
+        const QString current = QStringLiteral(OTD_VERSION);
+        m_previousVersion = m_db->meta(QStringLiteral("app.version"));
+        const bool ranBefore = !m_previousVersion.isEmpty()
+                               || !m_db->meta(QStringLiteral("settings.rig.host")).isEmpty();
+        m_upgrade = ranBefore
+                    && (m_previousVersion.isEmpty() || UpdateCheck::compareVersions(m_previousVersion, current) < 0);
+        if (m_previousVersion != current)
+            m_db->setMeta(QStringLiteral("app.version"), current);
+    }
     m_settings.load(m_db);
     m_followRig = m_settings.followRig;
 

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 project(otd VERSION 1.6.5 LANGUAGES C CXX)
 # A build before the release says so, in its version and in the window
 # title ("On The Dial beta"); empty for a release.
-set(OTD_VERSION_SUFFIX "-beta")
+set(OTD_VERSION_SUFFIX "")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,6 +40,7 @@ add_library(otd_core STATIC
   src/core/StationNames.h    src/core/StationNames.cpp
   src/core/StationSearch.h   src/core/StationSearch.cpp
   src/core/AppSettings.h  src/core/AppSettings.cpp
+  src/core/ReleaseNotes.h src/core/ReleaseNotes.cpp
   src/core/Session.h      src/core/Session.cpp
   src/core/BandLine.h     src/core/BandLine.cpp
   src/core/DialMarks.h    src/core/DialMarks.cpp
