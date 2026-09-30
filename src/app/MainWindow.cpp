@@ -198,7 +198,10 @@ MainWindow::~MainWindow()
 
 void MainWindow::buildUi()
 {
-    setWindowTitle(QStringLiteral("On The Dial"));
+    // a pre-release build says so in the title, so the tester knows what runs
+    setWindowTitle(QLatin1String(OTD_VERSION).contains(QLatin1Char('-'))
+                       ? QStringLiteral("On The Dial beta")
+                       : QStringLiteral("On The Dial"));
     // PNG sizes first: they need no SVG plugin, so the icon shows on every
     // platform; the SVG covers any other size
     QIcon icon;

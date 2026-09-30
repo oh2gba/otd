@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
-project(otd VERSION 1.6.4 LANGUAGES C CXX)
+project(otd VERSION 1.7.0 LANGUAGES C CXX)
+# A build before the release says so, in its version and in the window
+# title ("On The Dial beta"); empty for a release.
+set(OTD_VERSION_SUFFIX "-beta")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,7 +68,7 @@ add_library(otd_core STATIC
 target_include_directories(otd_core PUBLIC src)
 target_link_libraries(otd_core PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Sql Qt6::WebSockets PRIVATE miniz)
 target_compile_definitions(otd_core PUBLIC
-  OTD_VERSION="${PROJECT_VERSION}"
+  OTD_VERSION="${PROJECT_VERSION}${OTD_VERSION_SUFFIX}"
   QT_NO_CAST_FROM_ASCII_DISABLED)
 
 # ---- application --------------------------------------------------------
