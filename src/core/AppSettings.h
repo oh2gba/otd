@@ -35,17 +35,19 @@ struct AppSettings
     QString rigDevice;
     int rigBaud = 0;
     QString rigctldExtra;
-    bool onAirOnly = false;
-    bool followRig = true;
+    bool onAirOnly = true;      // what is on the air now; the rest on request
+    bool followRig = false;     // a first start has no radio set up yet
     bool alwaysOnTop = false;
     bool showScale = true;
     bool showTable = true;
     bool showPlayer = true;
-    double scaleSpanKHz = 10.0;    // width of the dial scale (the wheel steps 10, 20, 50, 100 ... kHz)
+    double scaleSpanKHz = 50.0;    // width of the dial scale (the wheel steps 10, 20, 50, 100 ... kHz)
     QStringList kiwiReceivers;
     QStringList kiwiFavourites;
     QString kiwiMode = QStringLiteral("AM");   // mode when no rig is followed
-    double manualKHz = 6070.0;                 // last frequency set by hand; 49 m as a start
+    // last frequency set by hand; the first start lands on The Buzzer
+    // (4625 kHz, on the air day and night), with its neighbours on the dial
+    double manualKHz = 4625.0;
     QString kiwiCurrent;
     int kiwiVolume = 70;
 

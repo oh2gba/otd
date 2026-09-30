@@ -26,9 +26,11 @@ private slots:
         QVERIFY(s.showPlayer);
         QVERIFY(s.showScale);
         QVERIFY(s.showTable);
-        QCOMPARE(s.manualKHz, 6070.0);
+        QCOMPARE(s.manualKHz, 4625.0);   // The Buzzer, always there
+        QVERIFY(!s.followRig);            // no radio set up yet
+        QVERIFY(s.onAirOnly);
         QCOMPARE(s.kiwiMode, QStringLiteral("AM"));
-        QCOMPARE(s.scaleSpanKHz, 10.0);
+        QCOMPARE(s.scaleSpanKHz, 50.0);
         QCOMPARE(s.updateUrl, QStringLiteral("https://otd.oh2gba.eu/version.php"));
         QVERIFY(s.rigctldPath.isEmpty());
     }
@@ -137,7 +139,7 @@ private slots:
         db.setMeta(QStringLiteral("settings.view.manualKHz"), QStringLiteral("rubbish"));
         AppSettings s;
         s.load(&db);
-        QCOMPARE(s.manualKHz, 6070.0);
+        QCOMPARE(s.manualKHz, 4625.0);
     }
 };
 

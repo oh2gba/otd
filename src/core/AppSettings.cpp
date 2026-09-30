@@ -68,7 +68,7 @@ void AppSettings::load(const StationDb* db)
     scaleSpanKHz = qBound(5.0, num(31, scaleSpanKHz), 20000.0);
     kiwiFavourites = str(32, QString()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     kiwiMode = str(33, kiwiMode);
-    manualKHz = num(34, manualKHz) > 0.0 ? num(34, manualKHz) : 6070.0;
+    manualKHz = num(34, manualKHz) > 0.0 ? num(34, manualKHz) : AppSettings().manualKHz;
 }
 
 void AppSettings::save(StationDb* db) const

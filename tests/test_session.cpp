@@ -43,6 +43,10 @@ bool seed(const QString& dir, quint16 rigPort, bool followRig = true)
     s.showPlayer = false;
     s.launchRigctld = false;
     s.followRig = followRig;
+    // the tests were written against these; the first-start defaults differ
+    s.onAirOnly = false;
+    s.manualKHz = 6070.0;
+    s.scaleSpanKHz = 100.0;
     s.rigHost = QStringLiteral("127.0.0.1");
     s.rigPort = rigPort;
     s.pollIntervalMs = 100;
@@ -509,7 +513,7 @@ private slots:
         // a value saved "soon" arrives, and a save now drops the pending one
         s.settings().scaleSpanKHz = 250.0;
         s.saveSettingsSoon();
-        QCOMPARE(stored(dir.path()).scaleSpanKHz, 10.0);
+        QCOMPARE(stored(dir.path()).scaleSpanKHz, 100.0);
         QTRY_COMPARE_WITH_TIMEOUT(stored(dir.path()).scaleSpanKHz, 250.0, 3000);
         s.settings().scaleSpanKHz = 300.0;
         s.saveSettingsSoon();
