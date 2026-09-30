@@ -388,6 +388,53 @@ private slots:
         QVERIFY(s.followRig());
     }
 
+    // Following the rig, the dial shows the last frequency of the previous
+    // session at once, until the rig answers; the rig's frequency is what
+    // the next start remembers. Before the rig has had its chance the mode
+    // says nothing rather than "no rig".
+    void lastFrequencyShowsAtOnce()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port()));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            AppSettings a;
+            a.load(&db);
+            a.lastKHz = 11775.0;
+            a.save(&db);
+        }
+        {
+            Session s(dir.path());
+            QSignalSpy centres(&s, &Session::centreChanged);
+            s.start();
+            QCOMPARE(s.centreKHz(), 11775.0);   // before any event is handled
+            QCOMPARE(centres.size(), 1);
+            QCOMPARE(centres.last().at(1).value<Session::Origin>(), Session::Origin::Remembered);
+            QCOMPARE(s.modeText(), QString());
+            QTRY_COMPARE_WITH_TIMEOUT(s.centreKHz(), 7125.0, 5000);   // the rig's answer takes over
+            QTRY_COMPARE_WITH_TIMEOUT(s.modeText(), QStringLiteral("USB"), 5000);
+            QTRY_COMPARE_WITH_TIMEOUT(stored(dir.path()).lastKHz, 7125.0, 3000);
+        }
+        // a rig that stays silent: the remembered frequency stays, the mode says so
+        QTemporaryDir dir2;
+        QVERIFY(seed(dir2.path(), deadPort()));
+        {
+            StationDb db(dir2.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            AppSettings a;
+            a.load(&db);
+            a.lastKHz = 9420.0;
+            a.save(&db);
+        }
+        Session s(dir2.path());
+        s.start();
+        QCOMPARE(s.centreKHz(), 9420.0);
+        QTRY_VERIFY_WITH_TIMEOUT(s.modeText() == QLatin1String("no rig"), 3 * kSilenceMs);
+        QCOMPARE(s.centreKHz(), 9420.0);
+    }
+
     // The Follow rig switch: on takes the rig's frequency at once and is
     // stored; off for the session only leaves the stored preference; while
     // off, the rig's moves are noted but not shown.

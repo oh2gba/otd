@@ -44,6 +44,7 @@ AppSettings everythingChanged()
     s.scaleSpanKHz = 50.0;
     s.kiwiMode = QStringLiteral("USB");
     s.manualKHz = 9500.125;
+    s.lastKHz = 11775.5;
     return s;
 }
 
@@ -84,6 +85,7 @@ void expectSame(const AppSettings& in, const AppSettings& out)
     QCOMPARE(in.kiwiFavourites, out.kiwiFavourites);
     QCOMPARE(in.kiwiMode, out.kiwiMode);
     QCOMPARE(in.manualKHz, out.manualKHz);
+    QCOMPARE(in.lastKHz, out.lastKHz);
     QCOMPARE(in.kiwiCurrent, out.kiwiCurrent);
     QCOMPARE(in.kiwiVolume, out.kiwiVolume);
 }

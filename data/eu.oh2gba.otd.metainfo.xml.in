@@ -42,6 +42,7 @@
         <ul>
           <li>A first start opens on The Buzzer, 4625 kHz, with Follow rig off, On air only on, and a free public KiwiSDR receiver picked at random</li>
           <li>Shift+Down and Shift+Up tune to the next station down or up the list, with or without a rig; the mouse wheel over a digit of the big frequency tunes the rig too</li>
+          <li>Following a rig, the dial starts on the last frequency at once instead of waiting for the rig's first answer</li>
           <li>Stations in the aeronautical, maritime and amateur bands whose schedule gives no mode are shown as USB instead of AM</li>
           <li>KiwiSDR: opening the receiver's own web page while listening to it hands the connection to the browser, as most receivers take one connection per address</li>
           <li>Inside: the program's logic is separated from its window, with more tests</li>

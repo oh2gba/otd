@@ -90,7 +90,7 @@ public:
     // the station's mode is offered to the online receiver.
     Tuned tuneTo(double kHz, const QString& mode);
     QString frequencyText() const;   // "7 125.000 kHz", "---.--- kHz" before anything is tuned
-    QString modeText() const;        // the rig's mode, "no rig", or "manual"
+    QString modeText() const;        // the rig's mode, "no rig", "manual"; empty until the rig is heard of
     BandLine bandLine() const;       // the allocation of the tuned frequency
     QString rigSilentText() const;   // "Rig not answering (host:port)"
 
@@ -166,6 +166,7 @@ private:
     qint64 m_rigHz = 0;
     QString m_rigMode;
     bool m_rigAnswering = false;
+    bool m_rigHeardOf = false;   // the rig has answered, or been silent for the timeout
     QString m_lastSearchKey;   // search text and sources of the list on screen
     bool m_manualCheck = false;
 };

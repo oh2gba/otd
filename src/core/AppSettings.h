@@ -48,6 +48,9 @@ struct AppSettings
     // last frequency set by hand; the first start lands on The Buzzer
     // (4625 kHz, on the air day and night), with its neighbours on the dial
     double manualKHz = 4625.0;
+    // the last frequency on the dial, the rig's included: shown at once on
+    // the next start while the rig has not answered yet (0: none yet)
+    double lastKHz = 0.0;
     QString kiwiCurrent;
     int kiwiVolume = 70;
 

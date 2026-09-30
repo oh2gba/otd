@@ -194,8 +194,14 @@ void Session::start(double startKHz)
     }
     else if (!m_followRig)
     {
-        // no rig wanted: start where the listener left off (49 m at first)
+        // no rig wanted: start where the listener left off (The Buzzer at first)
         setCentre(m_settings.manualKHz, Origin::Manual);
+    }
+    else if (m_settings.lastKHz > 0.0)
+    {
+        // following the rig: until it answers (a second or two with a
+        // radio on a serial line), the dial shows where it was last time
+        setCentre(m_settings.lastKHz, Origin::Remembered);
     }
 
     if (m_updater->anyStale(m_settings.refreshDays))
@@ -225,6 +231,11 @@ void Session::setCentre(double kHz, Origin origin)
     {
         m_settings.manualKHz = kHz;   // remembered for the next start without a rig
         saveSettingsSoon();           // once tuning pauses, not on every step
+    }
+    if (origin != Origin::Remembered && kHz > 0.0 && !qFuzzyCompare(kHz + 1.0, m_settings.lastKHz + 1.0))
+    {
+        m_settings.lastKHz = kHz;     // shown first on the next start
+        saveSettingsSoon();
     }
     emit centreChanged(kHz, origin);
 }
@@ -281,6 +292,7 @@ void Session::onRigFrequency(qint64 hz)
 void Session::onRigAnswering(bool answering)
 {
     m_rigAnswering = answering;
+    m_rigHeardOf = true;
     if (!answering)
     {
         m_rigHz = 0;   // nothing the rig said still holds
@@ -303,7 +315,11 @@ QString Session::frequencyText() const
 QString Session::modeText() const
 {
     if (m_followRig)
+    {
+        if (!m_rigHeardOf)
+            return QString();   // not "no rig" before it has had its chance
         return m_rigAnswering ? m_rigMode : tr("no rig");
+    }
     return tr("manual");
 }
 
