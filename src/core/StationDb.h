@@ -4,12 +4,14 @@
 #include "EibiParser.h"
 #include "HfccParser.h"
 #include "Station.h"
+#include "StationNames.h"
 
 #include <QHash>
 #include <QObject>
 #include <QSqlDatabase>
 
-// Persistent SQLite store for the imported schedules and code tables.
+// Persistent SQLite store for the imported schedules, the code tables and
+// the settings; what the rows look like on screen is StationNames's.
 class StationDb : public QObject
 {
     Q_OBJECT
@@ -55,17 +57,6 @@ public:
     // the given sources. limit <= 0: every match.
     StationList search(const QString& text, const QStringList& excludeSources = QStringList(),
                        int limit = 0) const;
-    // The fields a search word can be limited to, "target:europe".
-    static const QStringList& searchFields();
-    struct SearchTerm
-    {
-        QString field;     // empty: anywhere
-        QString value;
-        bool negate = false;
-    };
-    // "bbc !china target:\"North Europe\"" -> its terms ("lang:" is language:)
-    static QList<SearchTerm> parseSearch(const QString& text);
-
     // Every source id present, with its number of entries.
     QList<QPair<QString, int>> sourceCounts() const;
 
@@ -82,30 +73,8 @@ public:
     // the name for a code, empty when the table has none
     QString code(const QString& source, const QString& kind, const QString& code) const;
 
-    // What the list shows for an entry: its fields through the lookup
-    // tables. The rows themselves keep what the source published.
-    QString stationOf(const StationEntry& e) const;   // HFCC: the broadcaster's name
-    QString languageOf(const StationEntry& e, bool details = false) const;
-    QString countryOf(const StationEntry& e) const;
-    QString siteOf(const StationEntry& e) const;
-    QString targetOf(const StationEntry& e, bool details = false) const;
-    static QString modeOf(const StationEntry& e);      // from the source's hints; empty when unknown
-    static QString remarksOf(const StationEntry& e);   // power, azimuth and the source's remarks
-    // the days as Monday-first digits (or EiBi's own notation) for the
-    // schedule; daysOf leaves "every day" empty, for the list
-    QString weekdays(const StationEntry& e) const;
-    QString daysOf(const StationEntry& e) const;
-
-    // EiBi codes as names. languageText: "Finnish" for FI, "French,
-    // English" for F,E; with details the whole description ("Finnish:
-    // Finland (5m)"). targetText: "Europe" for Eu, "North Europe" for NEu
-    // (from the README's "N.." and "Eu"), a country for a country code.
-    // Both empty when the tables know none of it.
-    QString languageText(const QString& codes, bool details = false) const;
-    QString targetText(const QString& codes, bool details = false) const;
-    QString countryName(const QString& itu) const;   // EiBi's country table; the code when unknown
-    // Human readable EiBi transmitter site: "/RUS-s" -> "Samara (Russia)".
-    QString siteName(const QString& homeItu, const QString& siteCode) const;
+    // What the list shows for an entry: its fields through these tables.
+    const StationNames& names() const { return m_names; }
 
 signals:
     void changed();
@@ -124,4 +93,5 @@ private:
     QString m_connectionName;
     QString m_lastError;
     QHash<QString, QHash<QString, QString>> m_lookup;   // "source/kind" -> code -> name
+    StationNames m_names;
 };

@@ -758,7 +758,7 @@ void MainWindow::updateScale()
         const StationEntry& e = m_model->entryAt(r);
         DialMark m;
         m.kHz = e.kHz;
-        m.name = m_session->db()->stationOf(e);
+        m.name = m_session->db()->names().stationOf(e);
         m.rank = StationModel::rank(m_model->statusAt(r));
         rows.push_back(m);
     }
@@ -813,8 +813,8 @@ void MainWindow::tableContextMenu(const QPoint& pos)
     if (idx.isValid() && !m_model->isBlank(idx.row()))
     {
         const StationEntry e = m_model->entryAt(idx.row());
-        const QString station = db->stationOf(e);
-        const QString mode = StationDb::modeOf(e);
+        const QString station = db->names().stationOf(e);
+        const QString mode = StationNames::modeOf(e);
         menu.addAction(tr("Tune to %1 kHz").arg(e.kHz), this, [this, proxyIdx]() {
             onRowActivated(proxyIdx);
         });
@@ -857,13 +857,13 @@ void MainWindow::tableContextMenu(const QPoint& pos)
                 StationEntry copy = e;
                 copy.id = 0;
                 copy.source = userSourceId();
-                copy.station = db->stationOf(e);
-                copy.lang = db->languageOf(e);
-                copy.site = db->siteOf(e);
-                copy.target = db->targetOf(e);
-                copy.days = db->daysOf(e);
-                copy.mode = StationDb::modeOf(e);
-                copy.remarks = StationDb::remarksOf(e);
+                copy.station = db->names().stationOf(e);
+                copy.lang = db->names().languageOf(e);
+                copy.site = db->names().siteOf(e);
+                copy.target = db->names().targetOf(e);
+                copy.days = db->names().daysOf(e);
+                copy.mode = StationNames::modeOf(e);
+                copy.remarks = StationNames::remarksOf(e);
                 copy.power.clear();
                 copy.azimuth.clear();
                 copy.flag.clear();

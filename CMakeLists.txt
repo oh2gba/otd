@@ -34,6 +34,8 @@ add_library(otd_core STATIC
   src/core/ZipReader.h       src/core/ZipReader.cpp
   src/core/Schedule.h        src/core/Schedule.cpp
   src/core/StationDb.h       src/core/StationDb.cpp
+  src/core/StationNames.h    src/core/StationNames.cpp
+  src/core/StationSearch.h   src/core/StationSearch.cpp
   src/core/AppSettings.h  src/core/AppSettings.cpp
   src/core/Session.h      src/core/Session.cpp
   src/core/BandLine.h     src/core/BandLine.cpp

@@ -118,33 +118,33 @@ private slots:
         const StationEntry& b = rows[1];   // 6155
         const StationEntry& a = rows[2];   // 9500
         QCOMPARE(a.station, QStringLiteral("TDA"));   // stored as published
-        QCOMPARE(db.stationOf(a), QStringLiteral("Telediffusion d'Algerie"));
-        QCOMPARE(db.languageOf(a), QStringLiteral("Standard Arabic"));
-        QCOMPARE(db.siteOf(a), QStringLiteral("Bechar"));
-        QCOMPARE(db.countryOf(a), QStringLiteral("Algeria"));
-        QCOMPARE(StationDb::remarksOf(a), QStringLiteral("300 kW, az 131°"));
-        QCOMPARE(StationDb::modeOf(a), QStringLiteral("AM"));
-        QCOMPARE(db.daysOf(a), QString());   // every day
-        QVERIFY(db.targetOf(a).startsWith(QLatin1String("Iberia, Northwest Africa (southeast)")));
+        QCOMPARE(db.names().stationOf(a), QStringLiteral("Telediffusion d'Algerie"));
+        QCOMPARE(db.names().languageOf(a), QStringLiteral("Standard Arabic"));
+        QCOMPARE(db.names().siteOf(a), QStringLiteral("Bechar"));
+        QCOMPARE(db.names().countryOf(a), QStringLiteral("Algeria"));
+        QCOMPARE(StationNames::remarksOf(a), QStringLiteral("300 kW, az 131°"));
+        QCOMPARE(StationNames::modeOf(a), QStringLiteral("AM"));
+        QCOMPARE(db.names().daysOf(a), QString());   // every day
+        QVERIFY(db.names().targetOf(a).startsWith(QLatin1String("Iberia, Northwest Africa (southeast)")));
 
-        QCOMPARE(db.siteOf(b), QStringLiteral("Moosbrunn (Austria)"));   // relay abroad
-        QCOMPARE(StationDb::remarksOf(b), QStringLiteral("100 kW, NOTE"));
-        QCOMPARE(StationDb::modeOf(b), QStringLiteral("DRM"));
-        QCOMPARE(db.daysOf(b), QStringLiteral("23456"));
+        QCOMPARE(db.names().siteOf(b), QStringLiteral("Moosbrunn (Austria)"));   // relay abroad
+        QCOMPARE(StationNames::remarksOf(b), QStringLiteral("100 kW, NOTE"));
+        QCOMPARE(StationNames::modeOf(b), QStringLiteral("DRM"));
+        QCOMPARE(db.names().daysOf(b), QStringLiteral("23456"));
 
-        QCOMPARE(db.stationOf(c), QStringLiteral("OMR"));   // unknown broadcaster: its code
-        QCOMPARE(db.siteOf(c), QStringLiteral("NIJ"));
-        QCOMPARE(db.languageOf(c), QStringLiteral("Nld"));
-        QCOMPARE(StationDb::modeOf(c), QString());
-        QCOMPARE(StationDb::remarksOf(c), QStringLiteral("15 kW, mod X"));
+        QCOMPARE(db.names().stationOf(c), QStringLiteral("OMR"));   // unknown broadcaster: its code
+        QCOMPARE(db.names().siteOf(c), QStringLiteral("NIJ"));
+        QCOMPARE(db.names().languageOf(c), QStringLiteral("Nld"));
+        QCOMPARE(StationNames::modeOf(c), QString());
+        QCOMPARE(StationNames::remarksOf(c), QStringLiteral("15 kW, mod X"));
         QCOMPARE(Schedule::timeWindow(c), QStringLiteral("24h"));   // 0000-0000
 
         // validity with the year: on the air inside it, off outside
         const QDateTime inside(QDate(2026, 7, 1), QTime(15, 30), QTimeZone::UTC);
         const QDateTime after(QDate(2026, 9, 1), QTime(15, 30), QTimeZone::UTC);
-        QCOMPARE(Schedule::status(b, inside, db.weekdays(b)), Schedule::OnAir::Yes);   // a Wednesday
-        QCOMPARE(Schedule::status(b, after, db.weekdays(b)), Schedule::OnAir::No);
-        QCOMPARE(Schedule::status(c, after, db.weekdays(c)), Schedule::OnAir::Yes);
+        QCOMPARE(Schedule::status(b, inside, db.names().weekdays(b)), Schedule::OnAir::Yes);   // a Wednesday
+        QCOMPARE(Schedule::status(b, after, db.names().weekdays(b)), Schedule::OnAir::No);
+        QCOMPARE(Schedule::status(c, after, db.names().weekdays(c)), Schedule::OnAir::Yes);
 
         // the search finds the names, not only the codes
         QCOMPARE(db.search("telediffusion").size(), 1);

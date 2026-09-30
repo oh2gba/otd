@@ -163,10 +163,14 @@ Source code: <https://github.com/oh2gba/otd>
 ## Project layout
 
 ```
-src/core/   parsers (EiBi, HFCC, Aoki, Traficom), schedule evaluation, SQLite store, rigctld client,
-            downloaders, band plan, KiwiSDR client and receiver directory, version check (no GUI)
-src/app/    Qt Widgets user interface: main window, station model, dial scale, KiwiSDR player, settings
-tests/      QtTest unit tests for the core, plus kiwi_probe (manual check of a KiwiSDR connection)
+src/core/   everything but the window: the Session (tuning rules, what the list shows, settings),
+            parsers (EiBi, HFCC, Aoki, Traficom), schedule evaluation, SQLite store and the names
+            for its codes, the station list model, rigctld client, downloaders, band plan, KiwiSDR
+            client and receiver directory, version check (no widgets)
+src/app/    Qt Widgets user interface: main window, dial scale, KiwiSDR player and its audio
+            session, settings dialog
+tests/      QtTest unit tests for the core and the window, plus kiwi_probe (manual check of a
+            KiwiSDR connection)
 docker/     build images (Debian trixie + Qt 6; Ubuntu 22.04 for the AppImage; mingw for Windows)
 data/       desktop entry, icons, AppStream metainfo, band plan table
 third_party/miniz   zip extraction (MIT), bundled

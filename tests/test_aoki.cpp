@@ -73,27 +73,27 @@ private slots:
         for (const StationEntry& e : r.entries)   // in the file's order, as stored
             rows << e;
         // Aoki day 1 = Sunday; " 23456 " = Mon..Fri -> Monday-first 12345
-        QCOMPARE(db.weekdays(rows[1]), QStringLiteral("12345"));
-        QCOMPARE(db.weekdays(rows[2]), QStringLiteral("123456"));   // ".234567" = Mon..Sat
-        QCOMPARE(db.weekdays(rows[3]), QStringLiteral("7"));        // "1" = Sunday
-        QCOMPARE(db.weekdays(rows[5]), QStringLiteral("134567"));   // "12.4567" = all but Tuesday
-        QCOMPARE(db.daysOf(rows[0]), QString());                    // every day
-        QCOMPARE(StationDb::remarksOf(rows[0]), QStringLiteral("50 kW, NICT"));
-        QCOMPARE(StationDb::remarksOf(rows[4]), QStringLiteral("100 kW, az 209°, CRI a26"));
-        QVERIFY(StationDb::remarksOf(rows[7]).endsWith("*"));
-        QCOMPARE(StationDb::modeOf(rows[8]), QStringLiteral("AM"));
-        QCOMPARE(StationDb::modeOf(rows[9]), QStringLiteral("DRM"));
-        QCOMPARE(StationDb::modeOf(rows[10]), QStringLiteral("USB"));
-        QCOMPARE(db.languageOf(rows[4]), QStringLiteral("English"));
-        QCOMPARE(db.siteOf(rows[4]), QStringLiteral("Kashi-Saibagh 2022"));
+        QCOMPARE(db.names().weekdays(rows[1]), QStringLiteral("12345"));
+        QCOMPARE(db.names().weekdays(rows[2]), QStringLiteral("123456"));   // ".234567" = Mon..Sat
+        QCOMPARE(db.names().weekdays(rows[3]), QStringLiteral("7"));        // "1" = Sunday
+        QCOMPARE(db.names().weekdays(rows[5]), QStringLiteral("134567"));   // "12.4567" = all but Tuesday
+        QCOMPARE(db.names().daysOf(rows[0]), QString());                    // every day
+        QCOMPARE(StationNames::remarksOf(rows[0]), QStringLiteral("50 kW, NICT"));
+        QCOMPARE(StationNames::remarksOf(rows[4]), QStringLiteral("100 kW, az 209°, CRI a26"));
+        QVERIFY(StationNames::remarksOf(rows[7]).endsWith("*"));
+        QCOMPARE(StationNames::modeOf(rows[8]), QStringLiteral("AM"));
+        QCOMPARE(StationNames::modeOf(rows[9]), QStringLiteral("DRM"));
+        QCOMPARE(StationNames::modeOf(rows[10]), QStringLiteral("USB"));
+        QCOMPARE(db.names().languageOf(rows[4]), QStringLiteral("English"));
+        QCOMPARE(db.names().siteOf(rows[4]), QStringLiteral("Kashi-Saibagh 2022"));
         const QDateTime monday(QDate(2026, 9, 28), QTime(6, 0), QTimeZone::UTC);
-        QCOMPARE(Schedule::status(rows[6], monday, db.weekdays(rows[6])), Schedule::OnAir::Inactive);   // "x"
-        QCOMPARE(Schedule::status(rows[1], monday, db.weekdays(rows[1])), Schedule::OnAir::Yes);
-        QCOMPARE(Schedule::status(rows[3], monday.addSecs(4 * 3600), db.weekdays(rows[3])), Schedule::OnAir::No);
+        QCOMPARE(Schedule::status(rows[6], monday, db.names().weekdays(rows[6])), Schedule::OnAir::Inactive);   // "x"
+        QCOMPARE(Schedule::status(rows[1], monday, db.names().weekdays(rows[1])), Schedule::OnAir::Yes);
+        QCOMPARE(Schedule::status(rows[3], monday.addSecs(4 * 3600), db.names().weekdays(rows[3])), Schedule::OnAir::No);
 
         // a list that numbers from Monday
         QVERIFY(db.replaceCodes("aoki", {{"days", {{"1", "Monday"}}}}));
-        QCOMPARE(db.weekdays(rows[1]), QStringLiteral("23456"));
+        QCOMPARE(db.names().weekdays(rows[1]), QStringLiteral("23456"));
     }
 
     void mondayFirstTitle()

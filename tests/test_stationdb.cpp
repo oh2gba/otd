@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/Ciraf.h"
 #include "core/StationDb.h"
+#include "core/StationSearch.h"
 #include <QSignalSpy>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -109,14 +110,14 @@ private slots:
         const StationEntry hiekka = named("Radio Hiekka");
         QCOMPARE(hiekka.lang, QStringLiteral("FI"));
         QCOMPARE(hiekka.site, QStringLiteral("hv"));
-        QCOMPARE(db.languageOf(hiekka), QStringLiteral("Finnish"));
-        QCOMPARE(db.languageOf(hiekka, true), QStringLiteral("Finnish: Finland (5m)"));
-        QCOMPARE(db.siteOf(hiekka), QStringLiteral("Harjavalta"));
-        QCOMPARE(db.languageOf(named("Two tongues")), QStringLiteral("French, English"));
-        QCOMPARE(db.siteOf(named("WINB relay")), QStringLiteral("Nauen (Germany)"));   // a relay
-        QCOMPARE(db.languageOf(named("Unknown")), QStringLiteral("QQ"));
-        QCOMPARE(db.siteOf(named("Unknown")), QStringLiteral("zz"));
-        QCOMPARE(db.siteOf(named("HFC")), QStringLiteral("Harjavalta"));   // HFCC's own table
+        QCOMPARE(db.names().languageOf(hiekka), QStringLiteral("Finnish"));
+        QCOMPARE(db.names().languageOf(hiekka, true), QStringLiteral("Finnish: Finland (5m)"));
+        QCOMPARE(db.names().siteOf(hiekka), QStringLiteral("Harjavalta"));
+        QCOMPARE(db.names().languageOf(named("Two tongues")), QStringLiteral("French, English"));
+        QCOMPARE(db.names().siteOf(named("WINB relay")), QStringLiteral("Nauen (Germany)"));   // a relay
+        QCOMPARE(db.names().languageOf(named("Unknown")), QStringLiteral("QQ"));
+        QCOMPARE(db.names().siteOf(named("Unknown")), QStringLiteral("zz"));
+        QCOMPARE(db.names().siteOf(named("HFC")), QStringLiteral("Harjavalta"));   // HFCC's own table
     }
 
     // A database from before the rows were kept as published: what was
@@ -195,16 +196,16 @@ private slots:
         t.targets.insert("S..", "South ..");
         t.targets.insert("C..", "Central ..");
         QVERIFY(db.storeCodes(t));
-        QCOMPARE(db.targetText("Eu"), QStringLiteral("Europe"));
-        QCOMPARE(db.targetText("Eu", true), QStringLiteral("Europe (often including North Africa/Middle East)"));
-        QCOMPARE(db.targetText("NEu"), QStringLiteral("North Europe"));
-        QCOMPARE(db.targetText("SAs"), QStringLiteral("South Asia"));
-        QCOMPARE(db.targetText("CAm"), QStringLiteral("Central America(s)"));
-        QCOMPARE(db.targetText("FIN"), QStringLiteral("Finland"));   // a country as the target
-        QCOMPARE(db.targetText("Eu,ME"), QStringLiteral("Europe, Middle East"));
-        QCOMPARE(db.targetText("WEu"), QString());   // no "W.." in these tables
-        QCOMPARE(db.targetText("Tas"), QString());
-        QCOMPARE(db.targetText(""), QString());
+        QCOMPARE(db.names().targetText("Eu"), QStringLiteral("Europe"));
+        QCOMPARE(db.names().targetText("Eu", true), QStringLiteral("Europe (often including North Africa/Middle East)"));
+        QCOMPARE(db.names().targetText("NEu"), QStringLiteral("North Europe"));
+        QCOMPARE(db.names().targetText("SAs"), QStringLiteral("South Asia"));
+        QCOMPARE(db.names().targetText("CAm"), QStringLiteral("Central America(s)"));
+        QCOMPARE(db.names().targetText("FIN"), QStringLiteral("Finland"));   // a country as the target
+        QCOMPARE(db.names().targetText("Eu,ME"), QStringLiteral("Europe, Middle East"));
+        QCOMPARE(db.names().targetText("WEu"), QString());   // no "W.." in these tables
+        QCOMPARE(db.names().targetText("Tas"), QString());
+        QCOMPARE(db.names().targetText(""), QString());
     }
 
     // HFCC's CIRAF zones as names: lists, quadrants, ranges.
@@ -252,7 +253,7 @@ private slots:
         auto only = [&](const QString& text) {
             QStringList names;
             for (const StationEntry& e : db.search(text))
-                names << db.stationOf(e);
+                names << db.names().stationOf(e);
             names.sort();
             return names;
         };
@@ -262,19 +263,19 @@ private slots:
         QCOMPARE(only("northwest"), QStringList{"HFCC A"});
         QCOMPARE(only("tas"), QStringList{"Odd target"});
 
-        QCOMPARE(db.targetOf(hiekka), QStringLiteral("North Europe"));
-        QCOMPARE(db.targetOf(zones), QStringLiteral("Nordic countries, Western Europe (northwest)"));
-        QCOMPARE(db.targetOf(zones, true), QStringLiteral("CIRAF 18: Denmark, Finland, Norway, Sweden; "
+        QCOMPARE(db.names().targetOf(hiekka), QStringLiteral("North Europe"));
+        QCOMPARE(db.names().targetOf(zones), QStringLiteral("Nordic countries, Western Europe (northwest)"));
+        QCOMPARE(db.names().targetOf(zones, true), QStringLiteral("CIRAF 18: Denmark, Finland, Norway, Sweden; "
                                                           "27 northwest: Belgium, France, Great Britain, Ireland, Monaco, Netherlands"));
-        QCOMPARE(db.targetOf(unknownZone), QStringLiteral("99"));
-        QCOMPARE(db.targetOf(odd), QStringLiteral("Tas"));
+        QCOMPARE(db.names().targetOf(unknownZone), QStringLiteral("99"));
+        QCOMPARE(db.names().targetOf(odd), QStringLiteral("Tas"));
         QCOMPARE(db.entriesOf("eibi").first().target, QStringLiteral("Eu"));   // the row keeps the code
     }
 
     // Search terms: words, exclusions, one field, a quoted value.
     void parseSearchTerms()
     {
-        const auto t = StationDb::parseSearch("bbc !china target:\"North Europe\" lang:finnish !country:fin 13:00 target: mode:");
+        const auto t = StationSearch::parse("bbc !china target:\"North Europe\" lang:finnish !country:fin 13:00 target: mode:");
         QCOMPARE(t.size(), 6);
         QCOMPARE(t[0].value, QStringLiteral("bbc"));
         QVERIFY(t[0].field.isEmpty() && !t[0].negate);
@@ -289,7 +290,7 @@ private slots:
         QVERIFY(t[5].field.isEmpty());                       // "13" is no field: a plain word
         QCOMPARE(t[5].value, QStringLiteral("13:00"));
         // a quote still being typed
-        const auto open = StationDb::parseSearch("target:\"North Eu");
+        const auto open = StationSearch::parse("target:\"North Eu");
         QCOMPARE(open.size(), 1);
         QCOMPARE(open[0].value, QStringLiteral("North Eu"));
     }
@@ -350,11 +351,11 @@ private slots:
         StationDb db(dir.filePath("s.db"));
         QVERIFY2(db.open(), qPrintable(db.lastError()));
         QVERIFY(db.storeCodes(codeTables()));
-        QCOMPARE(db.languageText("FI"), QStringLiteral("Finnish"));
-        QCOMPARE(db.languageText("F,E"), QStringLiteral("French, English"));
-        QCOMPARE(db.languageText("E,QQ"), QStringLiteral("English, QQ"));   // an unknown part stays a code
-        QCOMPARE(db.languageText("QQ"), QString());
-        QCOMPARE(db.languageText(""), QString());
+        QCOMPARE(db.names().languageText("FI"), QStringLiteral("Finnish"));
+        QCOMPARE(db.names().languageText("F,E"), QStringLiteral("French, English"));
+        QCOMPARE(db.names().languageText("E,QQ"), QStringLiteral("English, QQ"));   // an unknown part stays a code
+        QCOMPARE(db.names().languageText("QQ"), QString());
+        QCOMPARE(db.names().languageText(""), QString());
     }
 
     // The frequency matches as written in the list, with all its decimals:
@@ -478,16 +479,16 @@ private slots:
         }
         StationDb db(path);
         QVERIFY(db.open());
-        QCOMPARE(db.languageText("E"), QStringLiteral("English"));
-        QCOMPARE(db.languageText("ZZZ"), QString());
-        QCOMPARE(db.countryName("RUS"), QStringLiteral("Russia"));
-        QCOMPARE(db.targetText("Eu"), QStringLiteral("Europe"));
-        QCOMPARE(db.targetText("RUS"), QStringLiteral("Russia"));   // ITU code as target
-        QCOMPARE(db.siteName("RUS", "s"), QStringLiteral("Samara"));
-        QCOMPARE(db.siteName("ROU", "/AUT-m"), QStringLiteral("Moosbrunn (Austria)"));
-        QCOMPARE(db.siteName("ROU", "/AUT"), QStringLiteral("Austria"));
-        QCOMPARE(db.siteName("ARM", ""), QStringLiteral("Gavar"));
-        QCOMPARE(db.siteName("RUS", "zz"), QStringLiteral("zz"));
+        QCOMPARE(db.names().languageText("E"), QStringLiteral("English"));
+        QCOMPARE(db.names().languageText("ZZZ"), QString());
+        QCOMPARE(db.names().countryName("RUS"), QStringLiteral("Russia"));
+        QCOMPARE(db.names().targetText("Eu"), QStringLiteral("Europe"));
+        QCOMPARE(db.names().targetText("RUS"), QStringLiteral("Russia"));   // ITU code as target
+        QCOMPARE(db.names().siteName("RUS", "s"), QStringLiteral("Samara"));
+        QCOMPARE(db.names().siteName("ROU", "/AUT-m"), QStringLiteral("Moosbrunn (Austria)"));
+        QCOMPARE(db.names().siteName("ROU", "/AUT"), QStringLiteral("Austria"));
+        QCOMPARE(db.names().siteName("ARM", ""), QStringLiteral("Gavar"));
+        QCOMPARE(db.names().siteName("RUS", "zz"), QStringLiteral("zz"));
     }
 };
 

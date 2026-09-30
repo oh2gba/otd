@@ -234,15 +234,15 @@ private slots:
         QCOMPARE(finnish.first().lang, QStringLiteral("FI"));
         QCOMPARE(finnish.first().site, QStringLiteral("hv"));
         QCOMPARE(finnish.first().target, QStringLiteral("NEu"));
-        QCOMPARE(db.languageOf(finnish.first()), QStringLiteral("Finnish"));
-        QCOMPARE(db.siteOf(finnish.first()), QStringLiteral("Harjavalta"));
-        QCOMPARE(db.targetOf(finnish.first()), QStringLiteral("North Europe"));
+        QCOMPARE(db.names().languageOf(finnish.first()), QStringLiteral("Finnish"));
+        QCOMPARE(db.names().siteOf(finnish.first()), QStringLiteral("Harjavalta"));
+        QCOMPARE(db.names().targetOf(finnish.first()), QStringLiteral("North Europe"));
         QCOMPARE(db.search(QStringLiteral("north europe")).size(), 1);
         const StationList nauen = db.search(QStringLiteral("nauen"));
         QCOMPARE(nauen.size(), 1);
         QCOMPARE(nauen.first().station, QStringLiteral("WINB"));
         QCOMPARE(nauen.first().site, QStringLiteral("/D-n"));
-        QCOMPARE(db.siteOf(nauen.first()), QStringLiteral("Nauen (Germany)"));
+        QCOMPARE(db.names().siteOf(nauen.first()), QStringLiteral("Nauen (Germany)"));
         QCOMPARE(db.search(QStringLiteral("russian samara")).size(), 120);
     }
 };
