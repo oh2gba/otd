@@ -130,7 +130,7 @@ private slots:
         QCOMPARE(db.names().siteOf(b), QStringLiteral("Moosbrunn (Austria)"));   // relay abroad
         QCOMPARE(StationNames::remarksOf(b), QStringLiteral("100 kW, NOTE"));
         QCOMPARE(StationNames::modeOf(b), QStringLiteral("DRM"));
-        QCOMPARE(db.names().daysOf(b), QStringLiteral("23456"));
+        QCOMPARE(db.names().daysOf(b), QStringLiteral("12345"));   // HFCC counts from Sunday: Mon-Fri
 
         QCOMPARE(db.names().stationOf(c), QStringLiteral("OMR"));   // unknown broadcaster: its code
         QCOMPARE(db.names().siteOf(c), QStringLiteral("NIJ"));
@@ -142,7 +142,7 @@ private slots:
         // validity with the year: on the air inside it, off outside
         const QDateTime inside(QDate(2026, 7, 1), QTime(15, 30), QTimeZone::UTC);
         const QDateTime after(QDate(2026, 9, 1), QTime(15, 30), QTimeZone::UTC);
-        QCOMPARE(Schedule::status(b, inside, db.names().weekdays(b)), Schedule::OnAir::Yes);   // a Wednesday
+        QCOMPARE(Schedule::status(b, inside, db.names().weekdays(b)), Schedule::OnAir::Yes);   // a Wednesday, Mon-Fri
         QCOMPARE(Schedule::status(b, after, db.names().weekdays(b)), Schedule::OnAir::No);
         QCOMPARE(Schedule::status(c, after, db.names().weekdays(c)), Schedule::OnAir::Yes);
 
@@ -159,6 +159,42 @@ private slots:
     {
         const auto r = HfccParser::parseSchedule(" 9500 0300 0400 ...\r\n");
         QVERIFY(!r.error.isEmpty());
+    }
+
+    // HFCC numbers the days from Sunday (1 = Sunday ... 7 = Saturday); otd
+    // shows and evaluates them Monday-first. The file keeps HFCC's digits.
+    void daysCountFromSunday()
+    {
+        QTemporaryDir dir;
+        StationDb db(dir.filePath(QStringLiteral("s.db")));
+        QVERIFY(db.open());
+        auto hfcc = [](const char* days) {
+            StationEntry e;
+            e.source = QStringLiteral("hfcc");
+            e.kHz = 5970;
+            e.startMin = 990;
+            e.endMin = 1020;
+            e.days = QString::fromLatin1(days);
+            return e;
+        };
+        QCOMPARE(db.names().weekdays(hfcc("23456")), QStringLiteral("12345"));   // Mon-Fri
+        QCOMPARE(db.names().weekdays(hfcc("17")), QStringLiteral("67"));         // Sat, Sun
+        QCOMPARE(db.names().weekdays(hfcc("1")), QStringLiteral("7"));           // Sunday
+        QCOMPARE(db.names().weekdays(hfcc("7")), QStringLiteral("6"));           // Saturday
+        QCOMPARE(db.names().weekdays(hfcc("1234567")), QStringLiteral("1234567"));
+        QCOMPARE(db.names().daysOf(hfcc("1234567")), QString());                // every day
+        QCOMPARE(hfcc("17").days, QStringLiteral("17"));                         // the row as published
+
+        const StationEntry saturdays = hfcc("7");
+        const QDateTime saturday(QDate(2026, 10, 3), QTime(16, 45), QTimeZone::UTC);
+        const QDateTime sunday(QDate(2026, 10, 4), QTime(16, 45), QTimeZone::UTC);
+        QCOMPARE(saturday.date().dayOfWeek(), 6);
+        QCOMPARE(Schedule::status(saturdays, saturday, db.names().weekdays(saturdays)), Schedule::OnAir::Yes);
+        QCOMPARE(Schedule::status(saturdays, sunday, db.names().weekdays(saturdays)), Schedule::OnAir::No);
+        const StationEntry weekend = hfcc("17");
+        const QDateTime monday(QDate(2026, 10, 5), QTime(16, 45), QTimeZone::UTC);
+        QCOMPARE(Schedule::status(weekend, sunday, db.names().weekdays(weekend)), Schedule::OnAir::Yes);
+        QCOMPARE(Schedule::status(weekend, monday, db.names().weekdays(weekend)), Schedule::OnAir::No);
     }
 };
 

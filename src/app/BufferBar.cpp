@@ -14,7 +14,7 @@ void BufferBar::setSeconds(double s)
 {
     m_seconds = qMax(0.0, s);
     m_valid = true;
-    setToolTip(tr("%1 s of audio in hand for the online receiver").arg(m_seconds, 0, 'f', 1));
+    setToolTip(tr("Audio buffer: %1 s").arg(m_seconds, 0, 'f', 1));
     update();
 }
 

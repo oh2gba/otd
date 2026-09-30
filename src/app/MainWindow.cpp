@@ -396,7 +396,10 @@ void MainWindow::buildUi()
         if (!m_filter->text().isEmpty())
             m_filter->clear();
         else
+        {
+            m_anchorId = 0;     // centred on the VFO, whatever was clicked
             centreOnMarker();   // back to the VFO after scrolling around
+        }
     });
     connect(m_filter, &QLineEdit::textChanged, this, &MainWindow::onFilterChanged);
 
@@ -508,7 +511,12 @@ void MainWindow::buildUi()
         if (m_player->isPlaying())
         {
             m_bufferBar->setSeconds(seconds);
-            m_bufferBar->show();
+            // A message in the status bar ("Checking for a new version")
+            // takes the left corner for its time: the status bar hides the
+            // bar and shows it again afterwards, so only show it when no
+            // message is up.
+            if (statusBar()->currentMessage().isEmpty())
+                m_bufferBar->show();
         }
         else
         {
@@ -749,16 +757,30 @@ void MainWindow::onRowActivated(const QModelIndex& index)
         return;
     const QString mode = m_model->data(m_model->index(src.row(), StationModel::ColMode),
                                        Qt::DisplayRole).toString();
+    if (m_dialActive && index.model() == m_proxy)
+    {
+        m_anchorId = m_model->entryAt(src.row()).id;
+        m_anchorY = m_table->rowViewportPosition(index.row());
+        m_anchorKHz = kHz;
+        m_anchorClock.start();
+    }
     tuneTo(kHz, mode, m_model->entryAt(src.row()).id);
 }
 
 void MainWindow::tuneTo(double kHz, const QString& mode, qint64 flashId)
 {
+    if (!m_flashTimer)
+    {
+        m_flashTimer = new QTimer(this);
+        m_flashTimer->setSingleShot(true);
+        m_flashTimer->setInterval(350);
+        connect(m_flashTimer, &QTimer::timeout, this, [this]() { m_model->setFlash(0); });
+    }
     if (flashId != 0)
     {
         // a short blink on the row, as a receipt
         m_model->setFlash(flashId);
-        QTimer::singleShot(350, this, [this]() { m_model->setFlash(0); });
+        m_flashTimer->start();
     }
     m_session->tuneTo(kHz, mode);
 }
@@ -1143,20 +1165,55 @@ void MainWindow::centreOnMarker()
     // a model reset only schedules the layout; do it now so that the
     // scroll range is right before moving
     m_table->doItemsLayout();
-    // the seam between "below the VFO" and "at or above it" goes to the
-    // middle of the rows on screen
+    // just double-clicked: that row stays under the mouse (for a few
+    // seconds, long enough for the rig to confirm the frequency)
+    if (m_anchorId != 0)
+    {
+        if (m_anchorClock.elapsed() < 4000
+            && qFuzzyCompare(m_session->centreKHz() + 1.0, m_anchorKHz + 1.0) && placeAnchor())
+            return;
+        m_anchorId = 0;
+    }
+    // The rows on the tuned frequency, as shown (On air only may hide some
+    // of them), go to the middle as one block; without any, the seam
+    // between "below the VFO" and "above it" does.
     const int rows = m_proxy->rowCount();
-    int seam = rows;
+    int seam = rows, first = -1, last = -1;
     for (int r = 0; r < rows; ++r)
-        if (m_proxy->index(r, 0).data(StationModel::DialSideRole).toInt() > 0)
+    {
+        const QModelIndex idx = m_proxy->index(r, 0);
+        if (qFuzzyIsNull(idx.data(StationModel::DeltaRole).toDouble())
+            && !m_model->isBlank(m_proxy->mapToSource(idx).row()))
         {
-            seam = r;
-            break;
+            if (first < 0)
+                first = r;
+            last = r;
         }
+        if (seam == rows && idx.data(StationModel::DialSideRole).toInt() > 0)
+            seam = r;
+    }
     QScrollBar* bar = m_table->verticalScrollBar();
-    const int y = seam < rows ? m_table->rowViewportPosition(seam) + bar->value()
-                              : m_table->verticalHeader()->length();
+    int y;
+    if (first >= 0)
+        y = (m_table->rowViewportPosition(first) + m_table->rowViewportPosition(last) + m_table->rowHeight(last)) / 2
+            + bar->value();
+    else
+        y = seam < rows ? m_table->rowViewportPosition(seam) + bar->value() : m_table->verticalHeader()->length();
     bar->setValue(y - m_table->viewport()->height() / 2);
+}
+
+bool MainWindow::placeAnchor()
+{
+    for (int r = 0; r < m_proxy->rowCount(); ++r)
+    {
+        const int src = m_proxy->mapToSource(m_proxy->index(r, 0)).row();
+        if (src < 0 || m_model->isBlank(src) || m_model->entryAt(src).id != m_anchorId)
+            continue;
+        QScrollBar* bar = m_table->verticalScrollBar();
+        bar->setValue(bar->value() + m_table->rowViewportPosition(r) - m_anchorY);
+        return true;
+    }
+    return false;
 }
 
 void MainWindow::refillDial()
@@ -1296,8 +1353,22 @@ void MainWindow::tuneNeighbour(int direction)
     }
     if (best < 0)
         return;   // the end of what is shown
-    const StationEntry& e = m_model->entryAt(best);
-    tuneTo(e.kHz, StationNames::modeOf(e), e.id);
+    const StationEntry e = m_model->entryAt(best);
+    tuneTo(e.kHz, StationNames::modeOf(e), 0);   // no blink: that is the mouse's receipt
+    // The dial recentres on the new frequency by itself. A search list
+    // keeps its order while tuning, so there the table scrolls to the
+    // station instead, keeping it in the middle.
+    if (m_searching)
+        for (int pr = 0; pr < m_proxy->rowCount(); ++pr)
+        {
+            const QModelIndex idx = m_proxy->index(pr, StationModel::ColStation);
+            const int r = m_proxy->mapToSource(idx).row();
+            if (r >= 0 && !m_model->isBlank(r) && m_model->entryAt(r).id == e.id)
+            {
+                m_table->scrollTo(idx, QAbstractItemView::PositionAtCenter);
+                break;
+            }
+        }
 }
 
 // Mouse wheel over one digit of the big frequency: that digit goes up or

@@ -197,11 +197,13 @@ void Session::start(double startKHz)
         // no rig wanted: start where the listener left off (The Buzzer at first)
         setCentre(m_settings.manualKHz, Origin::Manual);
     }
-    else if (m_settings.lastKHz > 0.0)
+    else
     {
-        // following the rig: until it answers (a second or two with a
-        // radio on a serial line), the dial shows where it was last time
-        setCentre(m_settings.lastKHz, Origin::Remembered);
+        // Following the rig: until it answers (a second or two with a
+        // radio on a serial line, never with the radio switched off), the
+        // dial shows where it was last time, or the last frequency set by
+        // hand, rather than nothing.
+        setCentre(m_settings.lastKHz > 0.0 ? m_settings.lastKHz : m_settings.manualKHz, Origin::Remembered);
     }
 
     if (m_updater->anyStale(m_settings.refreshDays))

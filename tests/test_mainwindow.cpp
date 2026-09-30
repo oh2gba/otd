@@ -13,6 +13,7 @@
 #include "MainWindow.h"
 #include "core/StationModel.h"
 #include "core/EibiParser.h"
+#include "core/Format.h"
 #include "core/RigClient.h"
 #include "core/ScheduleSource.h"
 #include "core/StationDb.h"
@@ -780,10 +781,9 @@ private slots:
         QVERIFY(!w.findChild<QMessageBox*>(QStringLiteral("whatsNew")));
     }
 
-    // Follow rig ticked but nothing ever answers: once the rig counts as
-    // silent, the dial shows the remembered manual frequency rather than
-    // staying empty, the field says the same and stays read-only, and the
-    // clock runs in UTC.
+    // Follow rig ticked but nothing ever answers: the dial shows the
+    // remembered manual frequency from the start rather than staying empty,
+    // the field says the same and stays read-only, and the clock runs in UTC.
     void silentRigStartsOnRememberedFrequency()
     {
         QTcpServer a;
@@ -795,7 +795,7 @@ private slots:
         MainWindow w(dir.path());
         w.show();
         QVERIFY(QTest::qWaitForWindowExposed(&w));
-        QCOMPARE(shownFrequency(w), QStringLiteral("---.--- kHz"));
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 070.000 kHz"));   // at once, not after the timeout
         QTRY_COMPARE_WITH_TIMEOUT(rigStatus(w), notAnswering(port), 3 * kSilenceMs);
         QCOMPARE(shownFrequency(w), QStringLiteral("6 070.000 kHz"));
         QCOMPARE(shownMode(w), QStringLiteral("no rig"));
@@ -910,6 +910,239 @@ private slots:
         QVERIFY(followRig(w)->isChecked());
         QTest::keyClick(&w, Qt::Key_Up);   // the plain arrow is still not a knob with a rig
         QCOMPARE(rig.hz, qint64(7130000));
+    }
+
+    // Walking the dial with Shift+Down keeps the tuned station in the middle
+    // of the table, press after press, also past the end of what was loaded
+    // at the start.
+    void shiftWalkKeepsTheStationInTheMiddle()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            StationList many;   // one station every 2 kHz from 5000 to 9998
+            for (int k = 5000; k < 10000; k += 2)
+            {
+                StationEntry e;
+                e.source = userSourceId();
+                e.kHz = k;
+                e.station = QStringLiteral("S%1").arg(k);
+                many << e;
+            }
+            QVERIFY(db.replaceSource(userSourceId(), many));
+        }
+        MainWindow w(dir.path());
+        w.show();
+        w.activateWindow();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        auto* table = w.findChild<QTableView*>(QStringLiteral("stationTable"));
+        QVERIFY(table);
+        auto rowOf = [table](double kHz) {
+            for (int r = 0; r < table->model()->rowCount(); ++r)
+                if (table->model()->index(r, StationModel::ColFrequency).data(StationModel::SortRole).toDouble() == kHz
+                    && !table->model()->index(r, StationModel::ColStation).data().toString().isEmpty())
+                    return r;
+            return -1;
+        };
+        double kHz = 6070;
+        for (int press = 1; press <= 1200; ++press)
+        {
+            QTest::keyClick(&w, Qt::Key_Down, Qt::ShiftModifier);
+            kHz += 2;
+            QApplication::processEvents();
+            if (press % 50 != 0 && press > 3)
+                continue;   // look closely every fifty presses
+            QTest::qWait(20);
+            QCOMPARE(shownFrequency(w), QStringLiteral("%1 kHz").arg(Format::kHz(kHz)));
+            const int r = rowOf(kHz);
+            QVERIFY2(r >= 0, qPrintable(QStringLiteral("press %1: no row for %2").arg(press).arg(kHz)));
+            const int y = table->rowViewportPosition(r);
+            const int middle = table->viewport()->height() / 2;
+            const int rowH = table->rowHeight(r);
+            QVERIFY2(y + rowH > middle - 3 * rowH && y < middle + 3 * rowH,
+                     qPrintable(QStringLiteral("press %1: %2 kHz at y %3, middle %4").arg(press).arg(kHz).arg(y).arg(middle)));
+        }
+    }
+
+    // In a search the list keeps its order while tuning, so a Shift walk
+    // scrolls the table instead: the station walked to stays in the middle,
+    // press after press, without the mouse's blink.
+    void shiftWalkInASearchFollowsTheStation()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            StationList many;
+            for (int k = 5000; k < 10000; k += 2)
+            {
+                StationEntry e;
+                e.source = userSourceId();
+                e.kHz = k;
+                e.station = QStringLiteral("Walk %1").arg(k);
+                many << e;
+            }
+            QVERIFY(db.replaceSource(userSourceId(), many));
+        }
+        MainWindow w(dir.path());
+        w.show();
+        w.activateWindow();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        auto* table = w.findChild<QTableView*>(QStringLiteral("stationTable"));
+        auto* search = w.findChild<QLineEdit*>(QStringLiteral("search"));
+        QVERIFY(table && search);
+        search->setText(QStringLiteral("walk"));
+        w.setFocus();
+        QCOMPARE(table->model()->index(0, StationModel::ColStation).data().toString(), QStringLiteral("Walk 5000"));
+        double kHz = 6070;
+        for (int press = 1; press <= 200; ++press)
+        {
+            QTest::keyClick(&w, Qt::Key_Down, Qt::ShiftModifier);
+            kHz += 2;
+            if (press % 25 != 0)
+                continue;
+            QCOMPARE(shownFrequency(w), QStringLiteral("%1 kHz").arg(Format::kHz(kHz)));
+            int r = -1;
+            for (int i = 0; i < table->model()->rowCount(); ++i)
+                if (table->model()->index(i, StationModel::ColFrequency).data(StationModel::SortRole).toDouble() == kHz)
+                    r = i;
+            QVERIFY(r >= 0);
+            const int y = table->rowViewportPosition(r);
+            const int middle = table->viewport()->height() / 2;
+            const int rowH = table->rowHeight(r);
+            QVERIFY2(y + rowH > middle - 2 * rowH && y < middle + 2 * rowH,
+                     qPrintable(QStringLiteral("press %1: y %2, middle %3").arg(press).arg(y).arg(middle)));
+            // no red tint (the rows' own light shading per frequency may be there)
+            const QVariant bg = table->model()->index(r, 0).data(Qt::BackgroundRole);
+            QVERIFY(!bg.isValid() || bg.value<QBrush>().color() != QColor(0xf8, 0x51, 0x49, 0x50));
+        }
+        // the list itself did not move round
+        QCOMPARE(table->model()->index(0, StationModel::ColStation).data().toString(), QStringLiteral("Walk 5000"));
+    }
+
+    // Several stations on one frequency, some of them off the air and hidden
+    // by On air only: walking to that frequency centres the rows shown as
+    // one block.
+    void sameFrequencyBlockIsCentred()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            AppSettings a;
+            a.load(&db);
+            a.onAirOnly = true;
+            a.save(&db);
+            const int now = QDateTime::currentDateTimeUtc().time().hour() * 60
+                            + QDateTime::currentDateTimeUtc().time().minute();
+            StationList many;
+            for (int k = 5000; k < 9000; k += 5)
+            {
+                StationEntry e;
+                e.source = userSourceId();
+                e.kHz = k;
+                e.station = QStringLiteral("S%1").arg(k);
+                many << e;
+            }
+            for (int i = 0; i < 24; ++i)   // 7202: twelve on the air, twelve not
+            {
+                StationEntry e;
+                e.source = userSourceId();
+                e.kHz = 7202;
+                e.station = QStringLiteral("Crowd %1").arg(i);
+                if (i % 2)
+                {
+                    e.startMin = (now + 600) % 1440;
+                    e.endMin = e.startMin + 1;
+                }
+                many << e;
+            }
+            QVERIFY(db.replaceSource(userSourceId(), many));
+        }
+        MainWindow w(dir.path(), 7200.0);
+        w.show();
+        w.activateWindow();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        auto* table = w.findChild<QTableView*>(QStringLiteral("stationTable"));
+        QVERIFY(table);
+        QTest::keyClick(&w, Qt::Key_Down, Qt::ShiftModifier);
+        QTest::qWait(50);
+        QCOMPARE(shownFrequency(w), QStringLiteral("7 202.000 kHz"));
+        int first = -1, last = -1;
+        for (int r = 0; r < table->model()->rowCount(); ++r)
+            if (table->model()->index(r, StationModel::ColFrequency).data(StationModel::SortRole).toDouble() == 7202.0)
+            {
+                if (first < 0)
+                    first = r;
+                last = r;
+            }
+        QCOMPARE(last - first + 1, 12);   // only those on the air
+        const int top = table->rowViewportPosition(first);
+        const int bottom = table->rowViewportPosition(last) + table->rowHeight(last);
+        const int middle = table->viewport()->height() / 2;
+        QVERIFY2(qAbs((top + bottom) / 2 - middle) <= table->rowHeight(first),
+                 qPrintable(QStringLiteral("block %1..%2, middle %3").arg(top).arg(bottom).arg(middle)));
+    }
+
+    // A double-click tunes to the station and leaves its row where it was
+    // clicked, under the mouse, instead of centring the dial on it; Escape
+    // centres the dial again.
+    void doubleClickLeavesTheRowUnderTheMouse()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            StationList many;
+            for (int k = 5000; k < 9000; k += 5)
+            {
+                StationEntry e;
+                e.source = userSourceId();
+                e.kHz = k;
+                e.station = QStringLiteral("S%1").arg(k);
+                many << e;
+            }
+            QVERIFY(db.replaceSource(userSourceId(), many));
+        }
+        MainWindow w(dir.path(), 7000.0);
+        w.show();
+        w.activateWindow();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        auto* table = w.findChild<QTableView*>(QStringLiteral("stationTable"));
+        QVERIFY(table);
+        auto rowOf = [table](double kHz) {
+            for (int r = 0; r < table->model()->rowCount(); ++r)
+                if (table->model()->index(r, StationModel::ColFrequency).data(StationModel::SortRole).toDouble() == kHz)
+                    return r;
+            return -1;
+        };
+        const int r = rowOf(7030.0);   // six rows below the middle
+        QVERIFY(r >= 0);
+        const QRect rect = table->visualRect(table->model()->index(r, StationModel::ColStation));
+        QVERIFY(!rect.isEmpty() && rect.top() > table->viewport()->height() / 2);
+        QTest::mouseClick(table->viewport(), Qt::LeftButton, Qt::NoModifier, rect.center());
+        QTest::mouseDClick(table->viewport(), Qt::LeftButton, Qt::NoModifier, rect.center());
+        QCOMPARE(shownFrequency(w), QStringLiteral("7 030.000 kHz"));
+        QTest::qWait(200);   // the deferred centring has run
+        QCOMPARE(table->rowViewportPosition(rowOf(7030.0)), rect.top());
+
+        QTest::keyClick(&w, Qt::Key_Escape);   // back to the middle
+        const int y = table->rowViewportPosition(rowOf(7030.0));
+        QVERIFY2(qAbs(y + table->rowHeight(0) / 2 - table->viewport()->height() / 2) <= table->rowHeight(0),
+                 qPrintable(QString::number(y)));
     }
 
     // The mouse wheel over a digit of the big frequency turns that digit,

@@ -5,6 +5,7 @@
 #include "KiwiPlayer.h"
 #include "SettingsDialog.h"
 #include "core/Session.h"
+#include <QElapsedTimer>
 #include <QMainWindow>
 
 class QCheckBox;
@@ -126,6 +127,15 @@ private:
     void updateScale();
     void tuneTo(double kHz, const QString& mode, qint64 flashId = 0);
     void tuneNeighbour(int direction);   // Shift+Up/Down: the next station up or down the band
+    QTimer* m_flashTimer = nullptr;     // ends the short blink of a double-clicked row
+    // A double-clicked row stays where it was clicked while the dial moves
+    // to its frequency (and the rig confirms it): no row jumps away from
+    // under the mouse. Escape centres the dial again.
+    qint64 m_anchorId = 0;
+    int m_anchorY = 0;
+    double m_anchorKHz = 0.0;
+    QElapsedTimer m_anchorClock;
+    bool placeAnchor();   // false when the anchored row is not in the list
     QLabel* m_rigText = nullptr;
     QLabel* m_sdrStatus = nullptr;
     QLabel* m_dbStatus = nullptr;

@@ -10,8 +10,6 @@ QStringList ReleaseNotes::current()
         tr("Hop from station to station: Shift+Down and Shift+Up jump to the next station in the list, "
            "with or without a radio connected."),
         tr("Turning the mouse wheel over a digit of the big frequency now tunes your radio too."),
-        tr("With a radio connected, the station list now appears straight away on your last frequency "
-           "instead of staying empty until the radio answers."),
         tr("Aircraft, ship and other utility stations now show USB instead of AM, so the online receiver "
            "plays them the way they are sent."),
         tr("Opening a KiwiSDR's web page while you listen to it now hands the stream over to your browser, "

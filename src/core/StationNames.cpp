@@ -216,11 +216,15 @@ QString StationNames::remarksOf(const StationEntry& e)
 
 QString StationNames::weekdays(const StationEntry& e) const
 {
-    if (e.source != QLatin1String("aoki"))
-        return e.days;
-    // Aoki's days column: digits in its own numbering, day 1 Sunday unless
-    // the list said Monday; as Monday-first digits, like EiBi's
-    const bool sundayFirst = code(e.source, QStringLiteral("days"), QStringLiteral("1")) != QLatin1String("Monday");
+    const bool hfcc = e.source == QLatin1String("hfcc");
+    if (!hfcc && e.source != QLatin1String("aoki"))
+        return e.days;   // EiBi's digits are Monday-first already, its words as written
+    // HFCC's days are Sunday-first, as in the ITU's HFBC file format and
+    // HFCC's own help ("1 - Sunday ... 7 - Saturday"). Aoki's are its own
+    // numbering: day 1 Sunday unless the list said Monday. Both become
+    // Monday-first digits, like EiBi's.
+    const bool sundayFirst =
+        hfcc || code(e.source, QStringLiteral("days"), QStringLiteral("1")) != QLatin1String("Monday");
     QList<int> days;
     for (const QChar c : e.days)
         if (c.isDigit() && c != QLatin1Char('0') && c <= QLatin1Char('7'))

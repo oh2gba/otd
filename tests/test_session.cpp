@@ -369,8 +369,9 @@ private slots:
         QCOMPARE(s.modeText(), QStringLiteral("no rig"));
     }
 
-    // Follow rig ticked but nothing ever answers: once the rig counts as
-    // silent, the remembered frequency goes on the dial.
+    // Follow rig ticked but nothing ever answers (rigctld up, the radio
+    // off): the remembered manual frequency is on the dial at once, not
+    // after the silence timeout; the mode says "no rig" once it is known.
     void silentRigStartsOnRememberedFrequency()
     {
         QTemporaryDir dir;
@@ -378,13 +379,14 @@ private slots:
         Session s(dir.path());
         QSignalSpy centres(&s, &Session::centreChanged);
         s.start();
-        QCOMPARE(s.centreKHz(), 0.0);
-        QTRY_VERIFY_WITH_TIMEOUT(!s.rigAnswering() && s.centreKHz() > 0.0, 3 * kSilenceMs);
         QCOMPARE(s.centreKHz(), 6070.0);
         QCOMPARE(centres.size(), 1);
         QCOMPARE(centres.last().at(1).value<Session::Origin>(), Session::Origin::Remembered);
         QCOMPARE(s.frequencyText(), QStringLiteral("6 070.000 kHz"));
-        QCOMPARE(s.modeText(), QStringLiteral("no rig"));
+        QCOMPARE(s.modeText(), QString());
+        QTRY_VERIFY_WITH_TIMEOUT(!s.rigAnswering() && s.modeText() == QLatin1String("no rig"), 3 * kSilenceMs);
+        QCOMPARE(s.centreKHz(), 6070.0);
+        QCOMPARE(centres.size(), 1);
         QVERIFY(s.followRig());
     }
 
