@@ -19,6 +19,7 @@ otd_test(test_updatecheck)
 otd_test(test_kiwi)
 otd_test(test_traficom)
 otd_test(test_rigclient)
+otd_test(test_appsettings)   # AppSettings in the database
 
 # The app's own classes (settings, KiwiSDR player, main window) come from
 # the otd_app object library, so these tests build what otd itself runs.
@@ -30,7 +31,7 @@ function(otd_app_test name)
   set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
 
-otd_app_test(test_settings)     # AppSettings in the database, the Settings dialog
+otd_app_test(test_settings)     # the Settings dialog's result
 otd_app_test(test_kiwiplayer)   # the player against a fake KiwiSDR on localhost
 otd_app_test(test_mainwindow)   # the real main window against a fake rigctld
 otd_app_test(test_stationmodel)  # what the station list shows for an entry

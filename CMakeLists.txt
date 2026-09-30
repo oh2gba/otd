@@ -33,6 +33,7 @@ add_library(otd_core STATIC
   src/core/ZipReader.h       src/core/ZipReader.cpp
   src/core/Schedule.h        src/core/Schedule.cpp
   src/core/StationDb.h       src/core/StationDb.cpp
+  src/core/AppSettings.h  src/core/AppSettings.cpp
   src/core/RigClient.h       src/core/RigClient.cpp
   src/core/RigctldLauncher.h src/core/RigctldLauncher.cpp
   src/core/ScheduleSource.h  src/core/ScheduleSource.cpp
