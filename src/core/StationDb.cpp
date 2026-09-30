@@ -45,9 +45,9 @@ static const QStringList& downloadedSources()
 
 StationDb::StationDb(const QString& filePath, QObject* parent)
     : QObject(parent)
-    , m_names(this)
     , m_filePath(filePath)
     , m_connectionName(QStringLiteral("stationdb-") + QUuid::createUuid().toString(QUuid::Id128))
+    , m_names(this)
 {
 }
 

@@ -44,7 +44,9 @@ How to hook up the radio: <https://otd.oh2gba.eu/rig.html>
   frequency and the rig's mode through one of the public KiwiSDR receivers (directory
   built in, own addresses welcome). The program identifies itself to the receiver as otd.
 - Without a rig: type a frequency into the search box, or use the arrow keys (1 kHz,
-  Page Up/Down 5 kHz, with Ctrl 0.1 kHz) while *Follow rig* is off.
+  Page Up/Down 5 kHz, with Ctrl 0.1 kHz) while *Follow rig* is off. Shift+Down/Up go
+  to the next station down or up the list (up or down the band), with or without a rig;
+  the mouse wheel over a digit of the big frequency turns that digit.
 - *On air only* toggle, free-text filter (Escape clears it). Column widths follow the
   window width; right-click the header to choose the columns, double-click it to fit them.
 - Search: type "buzzer" and the whole database is searched. Several words must all match
@@ -126,7 +128,8 @@ cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build
 ```
 
 Without a rig: type a frequency into the search box, or use the arrow keys while
-*Follow rig* is off (1 kHz, Page Up/Down 5 kHz, with Ctrl 0.1 kHz). *View → Online
+*Follow rig* is off (1 kHz, Page Up/Down 5 kHz, with Ctrl 0.1 kHz). Shift+Down/Up go to
+the next station down or up the list, that is up or down the band, rig or no rig. *View → Online
 receiver* opens the KiwiSDR player.
 
 Settings (rigctld host/port, poll interval, search width, refresh interval,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "EibiParser.h"
+#include "BandPlan.h"
 
 #include <QRegularExpression>
 #include <QStringDecoder>
@@ -129,6 +130,25 @@ QString EibiParser::guessMode(const StationEntry& e)
     if (name.contains(QLatin1String("drm")))    return QStringLiteral("DRM");
     if (name.contains(QLatin1String("fax")))    return QStringLiteral("FAX");
     if (name.contains(QLatin1String("volmet"))) return QStringLiteral("USB");
+    // EiBi gives no mode. The allocation the frequency sits in tells the
+    // most: the aeronautical and maritime bands are single sideband (the
+    // oceanic air traffic, the coast stations), as are the coast guard
+    // weather broadcasts inside the amateur bands. What else the list has
+    // there are the out-of-band broadcasts and jammers from China, Taiwan
+    // and Korea, in their languages: those stay AM, as do the broadcast
+    // bands, time signals and anything the plan does not know.
+    static const BandPlan plan = BandPlan::builtIn();
+    const QVector<BandPlan::Band> bands = plan.lookup(e.kHz, 1);
+    const QString kind = bands.isEmpty() ? QString() : bands.first().kind;
+    if (kind == QLatin1String("aero") || kind == QLatin1String("maritime") || kind == QLatin1String("amateur"))
+    {
+        static const QStringList broadcastItu = {QStringLiteral("TWN"), QStringLiteral("CHN"), QStringLiteral("KRE")};
+        static const QStringList broadcastLang = {QStringLiteral("M"), QStringLiteral("C"), QStringLiteral("CA"),
+                                                  QStringLiteral("K"), QStringLiteral("VN")};
+        const QString firstLang = e.lang.section(QLatin1Char(','), 0, 0).trimmed();
+        if (!broadcastItu.contains(e.itu) && !broadcastLang.contains(firstLang))
+            return QStringLiteral("USB");
+    }
     return QStringLiteral("AM");
 }
 

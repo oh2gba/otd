@@ -186,8 +186,16 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
     m_open->setObjectName(QStringLiteral("openReceiverPage"));
     connect(m_open, &QToolButton::clicked, this, [this]() {
         const QString cur = currentReceiver();
-        if (!cur.isEmpty())
-            QDesktopServices::openUrl(KiwiClient::receiverUrl(cur));
+        if (cur.isEmpty())
+            return;
+        // Most receivers take one connection per address: the page in the
+        // browser and otd would fight over it. otd lets go first.
+        if (isPlaying() && KiwiClient::receiverUrl(cur) == m_audio->receiver())
+        {
+            m_audio->stop();
+            emit statusChanged(tr("Listening handed to the browser; press play to take it back"));
+        }
+        QDesktopServices::openUrl(KiwiClient::receiverUrl(cur));
     });
 
     // own addresses go in through a small dialog, not the list itself

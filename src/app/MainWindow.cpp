@@ -1205,14 +1205,18 @@ void MainWindow::showEvent(QShowEvent* event)
     QTimer::singleShot(0, this, &MainWindow::centreOnMarker);
 }
 
-// Without a rig the arrow keys are the tuning knob: Up/Down 1 kHz,
-// Page Up/Down 5 kHz, with Ctrl 0.1 kHz. Widgets that use the arrows
-// themselves (lists, spin boxes) keep them.
+// The arrow keys. Without a rig they are the tuning knob: Up/Down 1 kHz,
+// Page Up/Down 5 kHz, with Ctrl 0.1 kHz. With Shift, Down/Up go to the
+// next station down or up the list among the rows shown, rig or no rig:
+// the list runs upward in frequency, so Shift+Down is the next station up
+// the band, as the eye reads it. Widgets that use the arrows themselves
+// (lists, spin boxes) keep them.
 bool MainWindow::tuneByKey(QKeyEvent* key)
 {
     const double centre = m_session->centreKHz();
-    if (m_session->followRig() || centre <= 0.0)
+    if (centre <= 0.0)
         return false;
+    const bool shift = key->modifiers() & Qt::ShiftModifier;
     double step = 0.0;
     switch (key->key())
     {
@@ -1222,6 +1226,10 @@ bool MainWindow::tuneByKey(QKeyEvent* key)
     case Qt::Key_PageDown: step = -5.0; break;
     default: return false;
     }
+    if (!shift && m_session->followRig())
+        return false;   // the knob is for when no rig is followed
+    if (shift && (key->key() == Qt::Key_PageUp || key->key() == Qt::Key_PageDown))
+        return false;
     if (key->modifiers() & Qt::ControlModifier)
         step /= 10.0;
     if (QApplication::activePopupWidget())
@@ -1230,8 +1238,43 @@ bool MainWindow::tuneByKey(QKeyEvent* key)
     if (qobject_cast<QComboBox*>(focus) || qobject_cast<QAbstractSpinBox*>(focus)
         || qobject_cast<QAbstractItemView*>(focus) || (focus && qobject_cast<QComboBox*>(focus->parentWidget())))
         return false;
-    m_session->setManualKHz(qMax(0.0, centre + step));
+    if (shift)
+        tuneNeighbour(step > 0 ? -1 : 1);   // Down the list is up the band
+    else
+        m_session->setManualKHz(qMax(0.0, centre + step));
     return true;
+}
+
+// The next station up (direction 1) or down the band from the tuned
+// frequency, among the rows on screen (so "On air only" and a search
+// narrow the walk), with its mode: tuned as a double-click on it would.
+// On a frequency with several entries the first shown (on air first) leads.
+void MainWindow::tuneNeighbour(int direction)
+{
+    const double centre = m_session->centreKHz();
+    if (centre <= 0.0)
+        return;
+    int best = -1;
+    double bestKHz = 0.0;
+    const int rows = m_proxy->rowCount();
+    for (int pr = 0; pr < rows; ++pr)
+    {
+        const int r = m_proxy->mapToSource(m_proxy->index(pr, 0)).row();
+        if (r < 0 || m_model->isBlank(r))
+            continue;
+        const double kHz = m_model->entryAt(r).kHz;
+        if (direction > 0 ? kHz <= centre + 1e-6 : kHz >= centre - 1e-6)
+            continue;
+        if (best < 0 || (direction > 0 ? kHz < bestKHz : kHz > bestKHz))
+        {
+            best = r;
+            bestKHz = kHz;
+        }
+    }
+    if (best < 0)
+        return;   // the end of what is shown
+    const StationEntry& e = m_model->entryAt(best);
+    tuneTo(e.kHz, StationNames::modeOf(e), e.id);
 }
 
 // Mouse wheel over one digit of the big frequency: that digit goes up or

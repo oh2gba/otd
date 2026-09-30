@@ -512,6 +512,46 @@ private slots:
         QDesktopServices::unsetUrlHandler(QStringLiteral("http"));
     }
 
+    // While otd streams from a receiver, opening that receiver's page hands
+    // the connection to the browser: otd stops first (most receivers take
+    // one connection per address) and says so. Another receiver's page
+    // leaves the stream alone.
+    void openingThePageHandsOverTheConnection()
+    {
+        FakeKiwi kiwi;
+        KiwiPlayer p;
+        p.setReceivers({kiwi.address(), QStringLiteral("http://other.example:8073")}, {}, kiwi.address());
+        QSignalSpy status(&p, &KiwiPlayer::statusChanged);
+        auto* open = p.findChild<QToolButton*>(QStringLiteral("openReceiverPage"));
+        QToolButton* play = playButton(p);
+        QComboBox* list = receiverList(p);
+        QVERIFY(open && play && list);
+        UrlCatcher catcher;
+        QDesktopServices::setUrlHandler(QStringLiteral("http"), &catcher, "handle");
+
+        play->click();
+        QTRY_VERIFY_WITH_TIMEOUT(lastStatus(status).startsWith(QLatin1String("Listening on")), 5000);
+        QVERIFY(p.isPlaying());
+        open->click();
+        QVERIFY(!p.isPlaying());
+        QCOMPARE(lastStatus(status), QStringLiteral("Listening handed to the browser; press play to take it back"));
+        QCOMPARE(catcher.urls.size(), 1);
+        QCOMPARE(catcher.urls.first(), KiwiClient::receiverUrl(kiwi.address()));
+        QTRY_VERIFY_WITH_TIMEOUT(kiwi.peers.first()->state() == QAbstractSocket::UnconnectedState, 5000);
+
+        // streaming again, the page of a different receiver: no handover
+        play->click();
+        QTRY_COMPARE_WITH_TIMEOUT(kiwi.peers.size(), 2, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(p.isPlaying(), 5000);
+        list->setCurrentIndex(list->findData(QStringLiteral("http://other.example:8073")));   // looked at, not started
+        open->click();
+        QVERIFY(p.isPlaying());
+        QCOMPARE(catcher.urls.size(), 2);
+        QCOMPARE(catcher.urls.last().toString(), QStringLiteral("http://other.example:8073"));
+        p.stop();
+        QDesktopServices::unsetUrlHandler(QStringLiteral("http"));
+    }
+
     // A search that hides the receiver being heard does not change which
     // receiver the list names: the star, + and the saved choice keep acting
     // on the one playing, and the matches are there to pick from.

@@ -124,6 +124,7 @@ private:
     DialScale* m_scale = nullptr;
     void updateScale();
     void tuneTo(double kHz, const QString& mode, qint64 flashId = 0);
+    void tuneNeighbour(int direction);   // Shift+Up/Down: the next station up or down the band
     QLabel* m_rigText = nullptr;
     QLabel* m_sdrStatus = nullptr;
     QLabel* m_dbStatus = nullptr;

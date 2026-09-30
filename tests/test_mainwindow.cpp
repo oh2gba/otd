@@ -40,6 +40,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QtTest>
+#include <tuple>
 
 namespace
 {
@@ -805,6 +806,76 @@ private slots:
         QTest::keyClick(&w, Qt::Key_Up);
         QTest::keyClick(&w, Qt::Key_PageUp);
         QCOMPARE(shownFrequency(w), QStringLiteral("7 125.000 kHz"));
+    }
+
+    // Shift+Down/Up tune to the next station down or up the list (up or
+    // down the band, as the list runs) among the rows shown: on the dial,
+    // within a search, and to the rig when one is followed. At the end of
+    // what is shown nothing happens.
+    void shiftArrowsWalkTheStations()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            for (const auto& [kHz, name, mode] : QList<std::tuple<double, const char*, const char*>>{
+                     {7200, "Radio Alpha", "USB"}, {6100, "Radio Bravo", "AM"}, {9400, "Radio Charlie", "LSB"},
+                     {6100, "Bravo Two", "AM"}})
+            {
+                StationEntry e;
+                e.source = userSourceId();
+                e.kHz = kHz;
+                e.station = QString::fromLatin1(name);
+                e.mode = QString::fromLatin1(mode);
+                QVERIFY(db.insertEntry(e));
+            }
+        }
+        MainWindow w(dir.path());
+        w.show();
+        w.activateWindow();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        auto* player = w.findChild<KiwiPlayer*>();
+        auto* search = w.findChild<QLineEdit*>(QStringLiteral("search"));
+        QVERIFY(player && search);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 070.000 kHz"));
+
+        QTest::keyClick(&w, Qt::Key_Down, Qt::ShiftModifier);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 100.000 kHz"));
+        QCOMPARE(player->manualMode(), QStringLiteral("AM"));   // the station's mode came along
+        QTest::keyClick(&w, Qt::Key_Down, Qt::ShiftModifier);
+        QCOMPARE(shownFrequency(w), QStringLiteral("7 130.000 kHz"));
+        QTest::keyClick(&w, Qt::Key_Down, Qt::ShiftModifier);
+        QCOMPARE(shownFrequency(w), QStringLiteral("7 200.000 kHz"));
+        QCOMPARE(player->manualMode(), QStringLiteral("USB"));
+        QTest::keyClick(&w, Qt::Key_Up, Qt::ShiftModifier);
+        QCOMPARE(shownFrequency(w), QStringLiteral("7 130.000 kHz"));
+        QTest::keyClick(&w, Qt::Key_Up, Qt::ShiftModifier);
+        QTest::keyClick(&w, Qt::Key_Up, Qt::ShiftModifier);   // below 6100 there is nothing shown
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 100.000 kHz"));
+        QCOMPARE(shownMode(w), QStringLiteral("manual"));
+        QVERIFY(!followRig(w)->isChecked());
+
+        // within a search only its rows count
+        QTest::keyClicks(search, QStringLiteral("charlie"));
+        QTest::keyClick(&w, Qt::Key_Down, Qt::ShiftModifier);
+        QCOMPARE(shownFrequency(w), QStringLiteral("9 400.000 kHz"));
+        QCOMPARE(player->manualMode(), QStringLiteral("LSB"));
+        QTest::keyClick(&w, Qt::Key_Up, Qt::ShiftModifier);   // nothing lower among the results
+        QCOMPARE(shownFrequency(w), QStringLiteral("9 400.000 kHz"));
+        QTest::keyClick(search, Qt::Key_Escape);
+
+        // following an answering rig: the rig goes to the next station
+        followRig(w)->setChecked(true);
+        QTRY_COMPARE_WITH_TIMEOUT(shownFrequency(w), QStringLiteral("7 125.000 kHz"), 5000);
+        QTest::keyClick(&w, Qt::Key_Down, Qt::ShiftModifier);
+        QTRY_COMPARE_WITH_TIMEOUT(rig.hz, qint64(7130000), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(shownFrequency(w), QStringLiteral("7 130.000 kHz"), 5000);
+        QVERIFY(followRig(w)->isChecked());
+        QTest::keyClick(&w, Qt::Key_Up);   // the plain arrow is still not a knob with a rig
+        QCOMPARE(rig.hz, qint64(7130000));
     }
 
     // The mouse wheel over a digit of the big frequency turns that digit,

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(otd VERSION 1.7.0 LANGUAGES C CXX)
+project(otd VERSION 1.6.5 LANGUAGES C CXX)
 # A build before the release says so, in its version and in the window
 # title ("On The Dial beta"); empty for a release.
 set(OTD_VERSION_SUFFIX "-beta")

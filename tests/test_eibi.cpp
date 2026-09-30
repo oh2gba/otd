@@ -81,6 +81,35 @@ private slots:
         QCOMPARE(EibiParser::guessMode(e), QStringLiteral("DRM"));
     }
 
+    // Without a mode of its own, an entry in an aeronautical, maritime or
+    // amateur allocation is single sideband: the oceanic air traffic, the
+    // coast stations, the coast guard weather. The out-of-band broadcasts
+    // from China, Taiwan and Korea in those bands stay AM, as does
+    // everything in the broadcast bands and off the plan.
+    void modeGuessedFromTheAllocation()
+    {
+        auto entry = [](double kHz, const char* station, const char* lang, const char* itu) {
+            StationEntry e;
+            e.kHz = kHz;
+            e.station = QString::fromLatin1(station);
+            e.lang = QString::fromLatin1(lang);
+            e.itu = QString::fromLatin1(itu);
+            return e;
+        };
+        QCOMPARE(EibiParser::guessMode(entry(5598, "Santa Maria Radio A", "E", "AZR")), QStringLiteral("USB"));   // aero
+        QCOMPARE(EibiParser::guessMode(entry(8764, "NMO USCG Honolulu", "E", "HWA")), QStringLiteral("USB"));     // maritime
+        QCOMPARE(EibiParser::guessMode(entry(3673, "Netherlands Coastgd Wx", "E", "HOL")), QStringLiteral("USB")); // amateur band
+        QCOMPARE(EibiParser::guessMode(entry(4357, "CBV Valparaíso Radio", "S", "CHL")), QStringLiteral("USB"));
+        QCOMPARE(EibiParser::guessMode(entry(6340.2, "Sound of Hope", "M", "TWN")), QStringLiteral("AM"));       // a broadcast in the maritime band
+        QCOMPARE(EibiParser::guessMode(entry(11300, "Sound of Hope", "M", "TWN")), QStringLiteral("AM"));
+        QCOMPARE(EibiParser::guessMode(entry(3560, "Voice of Korea", "F", "KRE")), QStringLiteral("AM"));
+        QCOMPARE(EibiParser::guessMode(entry(8297, "ZLM Taupo Maritime R.", "E,T", "NZL")), QStringLiteral("USB"));
+        QCOMPARE(EibiParser::guessMode(entry(6070, "Radio 292", "G", "D")), QStringLiteral("AM"));          // broadcast band
+        QCOMPARE(EibiParser::guessMode(entry(4625, "The Buzzer", "", "RUS")), QStringLiteral("AM"));         // off the plan
+        QCOMPARE(EibiParser::guessMode(entry(10000, "WWV Colorado", "-TS", "USA")), QStringLiteral("AM"));  // time signal
+        QCOMPARE(EibiParser::guessMode(entry(9340, "Sound of Hope", "M", "TWN")), QStringLiteral("AM"));
+    }
+
     void latin1IsDecoded()
     {
         const QByteArray csv = "6000;0000-0100;;D;Radio B\xfcrgerfunk;D;Eu;;1;;\n";
