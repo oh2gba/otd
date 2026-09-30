@@ -41,7 +41,7 @@ struct AppSettings
     bool showScale = true;
     bool showTable = true;
     bool showPlayer = true;
-    double scaleSpanKHz = 100.0;   // width of the dial scale
+    double scaleSpanKHz = 10.0;    // width of the dial scale (the wheel steps 10, 20, 50, 100 ... kHz)
     QStringList kiwiReceivers;
     QStringList kiwiFavourites;
     QString kiwiMode = QStringLiteral("AM");   // mode when no rig is followed

@@ -839,6 +839,16 @@ private slots:
         auto* edit = w.findChild<QLineEdit*>(QStringLiteral("frequencyEdit"));
         QVERIFY(edit);
         QCOMPARE(edit->text(), QStringLiteral("5080.002"));
+
+        // following an answering rig, the wheel turns the rig's dial and
+        // the display follows what the rig then says
+        followRig(w)->setChecked(true);
+        QTRY_COMPARE_WITH_TIMEOUT(shownFrequency(w), QStringLiteral("7 125.000 kHz"), 5000);
+        wheelAt(3, 1);    // the 2 of "7 125": tens
+        QTRY_COMPARE_WITH_TIMEOUT(rig.hz, qint64(7135000), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(shownFrequency(w), QStringLiteral("7 135.000 kHz"), 5000);
+        QVERIFY(followRig(w)->isChecked());
+        QCOMPARE(w.statusBar()->currentMessage(), QStringLiteral("Tuning rig to 7135.000 kHz"));
     }
 
     // The band line names the allocation of the tuned frequency from the

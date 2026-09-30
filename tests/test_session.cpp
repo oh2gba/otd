@@ -509,7 +509,7 @@ private slots:
         // a value saved "soon" arrives, and a save now drops the pending one
         s.settings().scaleSpanKHz = 250.0;
         s.saveSettingsSoon();
-        QCOMPARE(stored(dir.path()).scaleSpanKHz, 100.0);
+        QCOMPARE(stored(dir.path()).scaleSpanKHz, 10.0);
         QTRY_COMPARE_WITH_TIMEOUT(stored(dir.path()).scaleSpanKHz, 250.0, 3000);
         s.settings().scaleSpanKHz = 300.0;
         s.saveSettingsSoon();

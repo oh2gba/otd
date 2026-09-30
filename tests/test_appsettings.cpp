@@ -28,7 +28,7 @@ private slots:
         QVERIFY(s.showTable);
         QCOMPARE(s.manualKHz, 6070.0);
         QCOMPARE(s.kiwiMode, QStringLiteral("AM"));
-        QCOMPARE(s.scaleSpanKHz, 100.0);
+        QCOMPARE(s.scaleSpanKHz, 10.0);
         QCOMPARE(s.updateUrl, QStringLiteral("https://otd.oh2gba.eu/version.php"));
         QVERIFY(s.rigctldPath.isEmpty());
     }

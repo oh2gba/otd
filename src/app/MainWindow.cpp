@@ -157,7 +157,7 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
     qApp->installEventFilter(this);
     // and the wheel over a digit of the big frequency turns that digit
     m_freqLabel->installEventFilter(this);
-    m_freqLabel->setToolTip(tr("Without a rig: turn the mouse wheel over a digit to change it"));
+    m_freqLabel->setToolTip(tr("Turn the mouse wheel over a digit to change it (the rig follows when one is connected)"));
 
     updateDbStatus();
     m_session->start(startKHz);
@@ -1234,12 +1234,13 @@ bool MainWindow::tuneByKey(QKeyEvent* key)
     return true;
 }
 
-// Mouse wheel over one digit of the big frequency, without a rig: that
-// digit goes up or down, like the tuning step of a radio display.
+// Mouse wheel over one digit of the big frequency: that digit goes up or
+// down, like the tuning step of a radio display. With a rig followed the
+// rig is tuned and the display follows it; without, the display alone.
 bool MainWindow::wheelOnFrequency(QWheelEvent* wheel)
 {
     const double centre = m_session->centreKHz();
-    if (m_session->followRig() || centre <= 0.0)
+    if (centre <= 0.0)
         return false;
     const int steps = wheel->angleDelta().y() / 120;
     if (steps == 0)
@@ -1263,7 +1264,7 @@ bool MainWindow::wheelOnFrequency(QWheelEvent* wheel)
     const double step = Format::digitStep(text, idx);
     if (step <= 0.0)
         return false;
-    m_session->setManualKHz(qMax(0.0, centre + steps * step));
+    m_session->tuneTo(qMax(0.0, centre + steps * step), QString());
     return true;
 }
 

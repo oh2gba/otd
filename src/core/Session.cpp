@@ -247,7 +247,7 @@ Session::Tuned Session::tuneTo(double kHz, const QString& mode)
         if (RigClient::isRigMode(mode))
             m_rig->setMode(mode);
         m_rig->setFrequency(qRound64(kHz * 1000.0));
-        emit message(tr("Tuning rig to %1 kHz %2").arg(kHz, 0, 'f', 3).arg(mode), 5000);
+        emit message(tr("Tuning rig to %1 kHz %2").arg(kHz, 0, 'f', 3).arg(mode).trimmed(), 5000);
         return Tuned::Rig;
     }
     if (m_followRig)
