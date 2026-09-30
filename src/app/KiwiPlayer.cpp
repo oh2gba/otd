@@ -13,6 +13,7 @@
 #include <QIcon>
 #include <QPixmap>
 #include <QPolygonF>
+#include <QRandomGenerator>
 #include <QSlider>
 #include <QStyle>
 #include <QToolButton>
@@ -394,6 +395,13 @@ void KiwiPlayer::rebuildList()
     }
     if (!needle.isEmpty() && shown == 0)
         m_receiver->addItem(tr("(no receiver matches \"%1\")").arg(needle), QString());
+    // a fresh install: one of the free receivers, chosen at random
+    bool picked = false;
+    if (m_current.isEmpty())
+    {
+        m_current = pickReceiver();
+        picked = !m_current.isEmpty();
+    }
     // The current receiver is always there and chosen, even when the search
     // hides it or an update calls it offline or leaves it out: the list names
     // the receiver being heard, and the star, + and the saved choice act on
@@ -410,6 +418,28 @@ void KiwiPlayer::rebuildList()
     else if (m_receiver->count() > 0)
         m_receiver->setCurrentIndex(0);
     updateStar();
+    if (picked)
+        emit receiversChanged();   // remembered, so the choice stays
+}
+
+// A fresh install has no receiver chosen. Rather than everyone landing on
+// the first receiver in the list, one is picked at random among those that
+// are on line, have a channel free and cover the tuned frequency, so that
+// otd's listeners spread over the volunteers' receivers.
+QString KiwiPlayer::pickReceiver() const
+{
+    QList<const KiwiDirectory::Receiver*> fit;
+    for (const KiwiDirectory::Receiver& r : m_directory)
+    {
+        if (r.offline || (r.usersMax > 0 && r.users >= r.usersMax))
+            continue;
+        if (m_kHz > 0.0 && (m_kHz < r.lowKHz || m_kHz > r.highKHz))
+            continue;
+        fit << &r;
+    }
+    if (fit.isEmpty())
+        return QString();
+    return fit.at(int(QRandomGenerator::global()->bounded(quint32(fit.size()))))->url;
 }
 
 QString KiwiPlayer::currentReceiver() const

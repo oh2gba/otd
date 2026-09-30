@@ -12,6 +12,7 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMediaDevices>
+#include <QSet>
 #include <QSignalSpy>
 #include <QTimer>
 #include <QToolButton>
@@ -293,6 +294,50 @@ private slots:
         QVERIFY(!empty.isPlaying());
         QCOMPARE(none.count(), 0);
         QVERIFY(lastStatus(status).startsWith(QLatin1String("Pick a receiver")));
+    }
+
+    // A fresh install has no receiver chosen: when the directory arrives,
+    // one is picked at random among the receivers on line with a channel
+    // free that cover the tuned frequency, and remembered.
+    void freshInstallPicksAFreeReceiver()
+    {
+        const QString a = QStringLiteral("http://a.example:8073");
+        const QString b = QStringLiteral("http://b.example:8073");
+        const QString c = QStringLiteral("http://c.example:8073");
+        const QString d = QStringLiteral("http://d.example:8073");
+        const QString e = QStringLiteral("http://e.example:8073");
+        KiwiDirectory::Receiver full = receiver(c, QStringLiteral("Cork"));
+        full.users = full.usersMax;
+        KiwiDirectory::Receiver low = receiver(d, QStringLiteral("Dover"));
+        low.highKHz = 3000;   // does not reach 4625
+        const QList<KiwiDirectory::Receiver> directory = {
+            receiver(a, QStringLiteral("Aland")), receiver(b, QStringLiteral("Bergen"), true), full, low,
+            receiver(e, QStringLiteral("Essen"))};
+        QSet<QString> picks;
+        for (int i = 0; i < 40; ++i)
+        {
+            KiwiPlayer p;
+            QSignalSpy changed(&p, &KiwiPlayer::receiversChanged);
+            p.setReceivers({}, {}, QString());   // nothing chosen yet
+            p.tune(4625, QString());
+            QVERIFY(p.currentReceiver().isEmpty());
+            p.setDirectory(directory);
+            const QString pick = p.currentReceiver();
+            QVERIFY2(pick == a || pick == e, qPrintable(pick));
+            QCOMPARE(changed.size(), 1);   // remembered
+            picks << pick;
+            // and it stays across later directory updates
+            p.setDirectory(directory);
+            QCOMPARE(p.currentReceiver(), pick);
+            QCOMPARE(changed.size(), 1);
+        }
+        QCOMPARE(picks.size(), 2);   // random: both turned up in forty tries
+
+        // a saved choice is never replaced
+        KiwiPlayer p;
+        p.setReceivers({}, {}, c);
+        p.setDirectory(directory);
+        QCOMPARE(p.currentReceiver(), c);
     }
 
     // A directory update that calls the chosen receiver offline, or leaves

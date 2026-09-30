@@ -55,6 +55,7 @@ private:
     void rememberCurrent();
     void rebuildList();
     void updateStar();
+    QString pickReceiver() const;   // for a fresh install: a random free one
     static QString labelFor(const KiwiDirectory::Receiver& r);
     static QIcon starIcon(bool on);
     static QIcon globeIcon();
