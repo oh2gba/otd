@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "KiwiPlayer.h"
-#include "core/PcmQueue.h"
+#include "KiwiAudio.h"
 
-#include <QLoggingCategory>
-
-#include <QAudioFormat>
-#include <QAudioSink>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QInputDialog>
 #include <QHBoxLayout>
-#include <QIODevice>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMediaDevices>
 #include <QPainter>
 #include <cmath>
 #include <QIcon>
@@ -23,9 +17,6 @@
 #include <QStyle>
 #include <QToolButton>
 #include <QVBoxLayout>
-
-#include <cstring>
-#include <optional>
 
 // A plain S-meter: a bar from S0 to S9+60 with the reading written on it.
 // Green up to S9, red beyond, as on a radio. clear() blanks it.
@@ -116,6 +107,7 @@ private:
 KiwiPlayer::KiwiPlayer(QWidget* parent)
     : QWidget(parent)
 {
+    m_audio = new KiwiAudio(this);
     // two rows: the controls, and under them the status text, so that a
     // changing status never moves the button
     auto* rows = new QVBoxLayout(this);
@@ -167,7 +159,7 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
             return;
         m_manualMode = m_modeBox->currentText();
         m_mode = m_manualMode;
-        m_client.tune(m_kHz, m_mode);
+        m_audio->tune(m_kHz, m_mode);
         emit manualModeChanged(m_manualMode);
     });
 
@@ -230,16 +222,9 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
     m_volume->setValue(70);
     m_volume->setMaximumWidth(120);
     m_volume->setToolTip(tr("Volume"));
-    connect(m_volume, &QSlider::valueChanged, this, [this](int v) {
-        if (m_sink)
-            m_sink->setVolume(v / 100.0);
-    });
+    connect(m_volume, &QSlider::valueChanged, m_audio, &KiwiAudio::setVolume);
 
     m_meter = new SMeter;
-    // the amount in hand, told a few times a second while playing
-    m_bufferTick = new QTimer(this);
-    m_bufferTick->setInterval(200);
-    connect(m_bufferTick, &QTimer::timeout, this, [this]() { emit audioInHandChanged(audioInHand()); });
 
     layout->addWidget(caption);
     layout->addWidget(m_search);
@@ -252,42 +237,28 @@ KiwiPlayer::KiwiPlayer(QWidget* parent)
     layout->addWidget(m_volume);
     layout->addWidget(m_meter);
 
-    connect(&m_client, &KiwiClient::stateChanged, this, &KiwiPlayer::setStatus);
-    connect(&m_client, &KiwiClient::audio, this, &KiwiPlayer::onAudio);
-    connect(&m_client, &KiwiClient::closed, this, &KiwiPlayer::onClosed);
-    connect(&m_client, &KiwiClient::sMeter, this, [this](double dBm) { m_meter->setDbm(dBm); });
+    // what the session says goes on to the window's status bar; when it
+    // ends, the controls go back to rest
+    connect(m_audio, &KiwiAudio::statusChanged, this, &KiwiPlayer::statusChanged);
+    connect(m_audio, &KiwiAudio::audioInHandChanged, this, &KiwiPlayer::audioInHandChanged);
+    connect(m_audio, &KiwiAudio::sMeter, this, [this](double dBm) { m_meter->setDbm(dBm); });
+    connect(m_audio, &KiwiAudio::stopped, this, [this]() {
+        m_play->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+        m_meter->clear();
+    });
     updateStar();   // nothing chosen yet: the star and the page button greyed
 }
 
-KiwiPlayer::~KiwiPlayer()
+KiwiPlayer::~KiwiPlayer() = default;
+
+bool KiwiPlayer::isPlaying() const
 {
-    m_client.close();
-    if (m_sink)
-        m_sink->disconnect(this);
-    delete m_sink;
+    return m_audio->isPlaying();
 }
 
-Q_LOGGING_CATEGORY(lcPlayer, "otd.player")
-
-namespace
+double KiwiPlayer::audioInHand() const
 {
-QString sinkStateText(QAudio::State st, QAudio::Error err)
-{
-    if (err == QAudio::OpenError)
-        return KiwiPlayer::tr("sound device could not be opened");
-    if (err == QAudio::IOError)
-        return KiwiPlayer::tr("sound device error");
-    if (err == QAudio::FatalError)
-        return KiwiPlayer::tr("sound device failed");
-    switch (st)
-    {
-    case QAudio::ActiveState:    return KiwiPlayer::tr("playing");
-    case QAudio::SuspendedState: return KiwiPlayer::tr("sound suspended");
-    case QAudio::StoppedState:   return KiwiPlayer::tr("sound stopped");
-    case QAudio::IdleState:      return KiwiPlayer::tr("waiting for audio");
-    }
-    return QString();
-}
+    return m_audio->audioInHand();
 }
 
 QStringList KiwiPlayer::receivers() const
@@ -457,7 +428,7 @@ int KiwiPlayer::volume() const
 void KiwiPlayer::setVolume(int percent)
 {
     qCDebug(lcPlayer) << "volume" << percent;
-    m_volume->setValue(qBound(0, percent, 100));
+    m_volume->setValue(qBound(0, percent, 100));   // and on to the session, through the slider
 }
 
 void KiwiPlayer::rememberCurrent()
@@ -482,45 +453,20 @@ void KiwiPlayer::togglePlay()
     const QString cur = currentReceiver();
     if (cur.isEmpty())
     {
-        setStatus(tr("Pick a receiver from the list, or add one with +"));
+        emit statusChanged(tr("Pick a receiver from the list, or add one with +"));
         return;
     }
     rememberCurrent();
-    qCDebug(lcPlayer) << "play" << cur << "at" << m_kHz << "kHz" << m_mode << "volume" << m_volume->value();
+    qCDebug(lcPlayer) << "play" << cur << "at" << m_kHz << "kHz" << m_mode;
     emit playRequested();
     m_play->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
-    m_client.tune(m_kHz, m_mode);
-    m_client.open(cur);
+    m_audio->tune(m_kHz, m_mode);
+    m_audio->play(cur);
 }
 
 void KiwiPlayer::stop()
 {
-    stopWith(QString());
-}
-
-// The one way playing ends: the session, the sound and the controls go
-// back to rest, and the status says why (empty: stopped on request).
-void KiwiPlayer::stopWith(const QString& status)
-{
-    qCDebug(lcPlayer) << "stop:" << (status.isEmpty() ? QStringLiteral("(on request)") : status) << "frames" << m_audioFrames;
-    m_client.close();   // emits nothing, so the status below stays
-    ++m_sessionsEnded;
-    if (m_sink)
-    {
-        m_sink->disconnect(this);   // no state texts from a sink on its way out
-        m_sink->stop();
-    }
-    delete m_sink;
-    m_sink = nullptr;
-    delete m_queue;
-    m_queue = nullptr;
-    m_resampler.reset();
-    m_sinkRate = 0;
-    m_play->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    m_meter->clear();
-    m_bufferTick->stop();
-    emit audioInHandChanged(0.0);   // not playing: nothing in hand
-    setStatus(status);
+    m_audio->stop();
 }
 
 void KiwiPlayer::tune(double kHz, const QString& rigMode)
@@ -531,13 +477,7 @@ void KiwiPlayer::tune(double kHz, const QString& rigMode)
     if (m_rigDriven)
     {
         // show the rig's mode in the box too, mapped onto what the receiver has
-        const QString up = rigMode.toUpper();
-        // (Hamlib's data and ECSS modes end in the sideband: PKTUSB, ECSSLSB)
-        const QString shown = up.endsWith(QLatin1String("USB"))   ? QStringLiteral("USB")
-                            : up.endsWith(QLatin1String("LSB"))   ? QStringLiteral("LSB")
-                            : up.startsWith(QLatin1String("CW"))  ? QStringLiteral("CW")
-                            : up.contains(QLatin1String("FM"))    ? QStringLiteral("NFM")
-                                                                   : QStringLiteral("AM");
+        const QString shown = KiwiClient::receiverMode(rigMode);
         const QSignalBlocker b(m_modeBox);
         m_modeBox->setCurrentText(shown);
         m_mode = shown;
@@ -549,7 +489,7 @@ void KiwiPlayer::tune(double kHz, const QString& rigMode)
         m_modeBox->setCurrentText(m_manualMode);
         m_mode = m_manualMode;
     }
-    m_client.tune(kHz, m_mode);
+    m_audio->tune(kHz, m_mode);
 }
 
 void KiwiPlayer::setManualMode(const QString& mode)
@@ -562,150 +502,5 @@ void KiwiPlayer::setManualMode(const QString& mode)
     const QSignalBlocker b(m_modeBox);
     m_modeBox->setCurrentText(mode);
     m_mode = mode;
-    m_client.tune(m_kHz, m_mode);
-}
-
-namespace
-{
-// the converter's name for a device format, if it can write it
-std::optional<PcmResampler::Format> resamplerFormat(const QAudioFormat& f)
-{
-    switch (f.sampleFormat())
-    {
-    case QAudioFormat::UInt8: return PcmResampler::Format::UInt8;
-    case QAudioFormat::Int16: return PcmResampler::Format::Int16;
-    case QAudioFormat::Int32: return PcmResampler::Format::Int32;
-    case QAudioFormat::Float: return PcmResampler::Format::Float;
-    default: return std::nullopt;
-    }
-}
-}
-
-void KiwiPlayer::onAudio(const QByteArray& pcm)
-{
-    const int rate = m_client.sampleRate();
-    if (!m_sink || m_sinkRate != rate)
-    {
-        if (m_sink)
-            m_sink->disconnect(this);
-        delete m_sink;
-        m_sink = nullptr;
-        delete m_queue;
-        m_queue = nullptr;
-        m_resampler.reset();
-        const QAudioDevice dev = QMediaDevices::defaultAudioOutput();
-        if (dev.isNull())
-        {
-            stopWith(tr("No sound output device"));
-            return;
-        }
-        // First the receiver's own format: Linux, macOS and a Windows with
-        // Media Foundation convert it to the device's themselves. A Windows
-        // without (the "N" editions) opens the sink only in the device's own
-        // format, so then that is opened and the audio converted here.
-        QAudioFormat fmt;
-        fmt.setSampleRate(rate);
-        fmt.setChannelCount(1);
-        fmt.setSampleFormat(QAudioFormat::Int16);
-        m_audioFrames = 0;
-        qCDebug(lcPlayer) << "sound device" << dev.description() << "preferred" << dev.preferredFormat()
-                          << "takes 12 kHz mono per Qt:" << dev.isFormatSupported(fmt);
-        if (!openSink(dev, fmt))
-        {
-            const QAudioFormat own = dev.preferredFormat();
-            qCDebug(lcPlayer) << "receiver format refused; trying the device's own" << own;
-            const std::optional<PcmResampler::Format> sample = resamplerFormat(own);
-            if (!own.isValid() || !sample || own == fmt || !openSink(dev, own))
-            {
-                stopWith(tr("Stopped: sound device %1 takes neither %2 Hz mono nor its own format")
-                             .arg(dev.description()).arg(rate));
-                return;
-            }
-            m_resampler = std::make_unique<PcmResampler>(rate, own.sampleRate(), own.channelCount(), *sample);
-            qCDebug(lcPlayer) << "converting" << rate << "Hz mono ->" << own;
-        }
-        m_sinkRate = rate;
-    }
-    const QByteArray out = m_resampler ? m_resampler->convert(pcm) : pcm;
-    m_queue->push(out);
-    if (m_audioFrames++ % 100 == 0)
-        qCDebug(lcPlayer) << "audio frame" << m_audioFrames << "in" << pcm.size() << "out" << out.size()
-                          << "queued" << m_queue->buffered() << "sink state" << m_sink->state() << "error" << m_sink->error()
-                          << "played us" << m_sink->processedUSecs() << "free" << m_sink->bytesFree()
-                          << "in hand s" << audioInHand();
-}
-
-bool KiwiPlayer::openSink(const QAudioDevice& dev, const QAudioFormat& fmt)
-{
-    const int bytesPerSecond = fmt.bytesForDuration(1000000);
-    m_queue = new PcmQueue(bytesPerSecond, fmt.sampleFormat() == QAudioFormat::UInt8 ? char(0x80) : char(0), this);
-    m_sink = new QAudioSink(dev, fmt, this);
-    m_sink->setBufferSize(bytesPerSecond / 2);   // half a second in the device
-    m_sink->setVolume(m_volume->value() / 100.0);
-    connect(m_sink, &QAudioSink::stateChanged, this, [this](QAudio::State st) {
-        onSinkState(st, m_sink->error());
-    });
-    m_opening = true;
-    m_sink->start(m_queue);   // pull mode: the sink asks, the queue answers
-    m_opening = false;
-    qCDebug(lcPlayer) << "sink" << fmt << "started: error" << m_sink->error() << "state" << m_sink->state()
-                      << "buffer" << m_sink->bufferSize();
-    if (m_sink->error() == QAudio::NoError)
-    {
-        m_sinkBytesPerSecond = bytesPerSecond;
-        m_bufferTick->start();
-        return true;
-    }
-    // refused right away (Qt says so without a state change)
-    m_sink->disconnect(this);
-    delete m_sink;
-    m_sink = nullptr;
-    delete m_queue;
-    m_queue = nullptr;
-    return false;
-}
-
-double KiwiPlayer::audioInHand() const
-{
-    if (!m_sink || !m_queue || m_sinkBytesPerSecond <= 0)
-        return 0.0;
-    // what waits in the queue, and what the device holds already
-    const qint64 held = qMax<qint64>(0, m_sink->bufferSize() - m_sink->bytesFree());
-    return double(m_queue->buffered() + held) / m_sinkBytesPerSecond;
-}
-
-void KiwiPlayer::onSinkState(QAudio::State state, QAudio::Error error)
-{
-    qCDebug(lcPlayer) << "sink state" << state << "error" << error << "queued" << (m_queue ? m_queue->buffered() : -1);
-    const QString t = sinkStateText(state, error);
-    const bool failed = state == QAudio::StoppedState
-                        && (error == QAudio::OpenError || error == QAudio::IOError || error == QAudio::FatalError);
-    if (failed && m_opening)
-        return;   // a refused start is handled by openSink itself
-    if (!failed)
-    {
-        if (!t.isEmpty())
-            setStatus(tr("%1: %2").arg(m_client.receiver().host(), t));
-        return;
-    }
-    // The sound is gone, so the session ends too. Not from here: this runs
-    // inside the sink's own signal and stopWith deletes the sink. If the
-    // session has ended some other way meanwhile, there is nothing to do.
-    const int session = m_sessionsEnded;
-    QMetaObject::invokeMethod(this, [this, session, t]() {
-        if (session == m_sessionsEnded)
-            stopWith(tr("Stopped: %1").arg(t));
-    }, Qt::QueuedConnection);
-}
-
-void KiwiPlayer::onClosed(const QString& reason)
-{
-    stopWith(tr("Stopped: %1").arg(reason));
-}
-
-void KiwiPlayer::setStatus(const QString& text)
-{
-    // shown by the main window in its status bar
-    m_statusText = text;
-    emit statusChanged(text);
+    m_audio->tune(m_kHz, m_mode);
 }

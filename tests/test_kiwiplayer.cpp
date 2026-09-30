@@ -2,6 +2,7 @@
 // KiwiPlayer against a fake KiwiSDR on localhost: how a session starts and
 // ends, what the status line says afterwards, which receiver the list names
 // and which mode the receiver is asked for.
+#include "KiwiAudio.h"
 #include "KiwiPlayer.h"
 
 #include <QApplication>
@@ -401,6 +402,8 @@ private slots:
     {
         FakeKiwi kiwi;
         KiwiPlayer p;
+        auto* audio = p.findChild<KiwiAudio*>();
+        QVERIFY(audio);
         p.setReceivers({kiwi.address()}, {}, kiwi.address());
         QSignalSpy status(&p, &KiwiPlayer::statusChanged);
         QToolButton* play = playButton(p);
@@ -409,12 +412,12 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(lastStatus(status).startsWith(QLatin1String("Listening on")), 5000);
 
         // ordinary states only show on the status line
-        p.onSinkState(QAudio::IdleState, QAudio::UnderrunError);
-        p.onSinkState(QAudio::ActiveState, QAudio::NoError);
+        audio->onSinkState(QAudio::IdleState, QAudio::UnderrunError);
+        audio->onSinkState(QAudio::ActiveState, QAudio::NoError);
         QTest::qWait(300);
         QVERIFY(p.isPlaying());
 
-        p.onSinkState(QAudio::StoppedState, QAudio::IOError);
+        audio->onSinkState(QAudio::StoppedState, QAudio::IOError);
         QVERIFY(p.isPlaying());   // not inside the sink's signal
         QTRY_VERIFY_WITH_TIMEOUT(!p.isPlaying(), 5000);
         QCOMPARE(lastStatus(status), QStringLiteral("Stopped: sound device error"));
@@ -424,7 +427,7 @@ private slots:
         // end the new session
         play->click();
         QTRY_COMPARE_WITH_TIMEOUT(kiwi.peers.size(), 2, 5000);
-        p.onSinkState(QAudio::StoppedState, QAudio::OpenError);
+        audio->onSinkState(QAudio::StoppedState, QAudio::OpenError);
         play->click();   // stop
         play->click();   // and start again at once
         QTest::qWait(300);   // the queued report has long been handled

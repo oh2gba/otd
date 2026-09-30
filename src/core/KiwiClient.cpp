@@ -507,3 +507,13 @@ void KiwiClient::applyTuning()
     send(QStringLiteral("SET mod=%1 low_cut=%2 high_cut=%3 freq=%4")
              .arg(mod).arg(low).arg(high).arg(base, 0, 'f', 3));
 }
+
+QString KiwiClient::receiverMode(const QString& rigMode)
+{
+    const QString up = rigMode.toUpper();
+    return up.endsWith(QLatin1String("USB"))  ? QStringLiteral("USB")
+         : up.endsWith(QLatin1String("LSB"))  ? QStringLiteral("LSB")
+         : up.startsWith(QLatin1String("CW")) ? QStringLiteral("CW")
+         : up.contains(QLatin1String("FM"))   ? QStringLiteral("NFM")
+                                              : QStringLiteral("AM");
+}

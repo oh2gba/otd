@@ -74,6 +74,7 @@ add_library(otd_app OBJECT
   src/app/StationModel.h     src/app/StationModel.cpp
   src/app/DialScale.h        src/app/DialScale.cpp
   src/app/KiwiPlayer.h       src/app/KiwiPlayer.cpp
+  src/app/KiwiAudio.h        src/app/KiwiAudio.cpp
   src/app/BufferBar.h        src/app/BufferBar.cpp
   src/app/SettingsDialog.h   src/app/SettingsDialog.cpp
   src/app/StationEditDialog.h src/app/StationEditDialog.cpp

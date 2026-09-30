@@ -55,6 +55,9 @@ public:
     // The receiver address as a URL with a scheme; its host is empty when
     // the text is no usable address.
     static QUrl receiverUrl(const QString& receiver);
+    // The receiver's name for a rig's mode: USB, LSB, CW, NFM or AM
+    // (Hamlib's data and ECSS modes end in the sideband: PKTUSB, ECSSLSB).
+    static QString receiverMode(const QString& rigMode);
 
     // IMA ADPCM decoder state, exposed for the unit test
     struct Adpcm

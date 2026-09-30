@@ -990,6 +990,22 @@ private slots:
         QVERIFY2(closed2.first().first().toString().contains(QLatin1String("refused"), Qt::CaseInsensitive),
                  qPrintable(closed2.first().first().toString()));
     }
+
+    // The receiver's name for a rig's mode: Hamlib's data and ECSS modes end
+    // in the sideband, CW variants start with CW, anything FM is NFM, the
+    // rest is AM.
+    void receiverModeForRigMode()
+    {
+        QCOMPARE(KiwiClient::receiverMode(QStringLiteral("USB")), QStringLiteral("USB"));
+        QCOMPARE(KiwiClient::receiverMode(QStringLiteral("PKTUSB")), QStringLiteral("USB"));
+        QCOMPARE(KiwiClient::receiverMode(QStringLiteral("ECSSLSB")), QStringLiteral("LSB"));
+        QCOMPARE(KiwiClient::receiverMode(QStringLiteral("CWR")), QStringLiteral("CW"));
+        QCOMPARE(KiwiClient::receiverMode(QStringLiteral("PKTFM")), QStringLiteral("NFM"));
+        QCOMPARE(KiwiClient::receiverMode(QStringLiteral("WFM")), QStringLiteral("NFM"));
+        QCOMPARE(KiwiClient::receiverMode(QStringLiteral("SAM")), QStringLiteral("AM"));
+        QCOMPARE(KiwiClient::receiverMode(QStringLiteral("am")), QStringLiteral("AM"));
+        QCOMPARE(KiwiClient::receiverMode(QString()), QStringLiteral("AM"));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestKiwi)
