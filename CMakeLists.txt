@@ -34,6 +34,10 @@ add_library(otd_core STATIC
   src/core/Schedule.h        src/core/Schedule.cpp
   src/core/StationDb.h       src/core/StationDb.cpp
   src/core/AppSettings.h  src/core/AppSettings.cpp
+  src/core/Session.h      src/core/Session.cpp
+  src/core/BandLine.h     src/core/BandLine.cpp
+  src/core/DialMarks.h    src/core/DialMarks.cpp
+  src/core/Format.h       src/core/Format.cpp
   src/core/RigClient.h       src/core/RigClient.cpp
   src/core/RigctldLauncher.h src/core/RigctldLauncher.cpp
   src/core/ScheduleSource.h  src/core/ScheduleSource.cpp

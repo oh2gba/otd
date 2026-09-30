@@ -4,15 +4,11 @@
 #include "MyStationsDialog.h"
 #include "StationEditDialog.h"
 #include "StationModel.h"
+#include "core/DialMarks.h"
+#include "core/Format.h"
+#include "core/KiwiDirectory.h"
 #include "core/SigidWiki.h"
-#include "core/AokiSource.h"
-#include "core/EibiSource.h"
-#include "core/TraficomSource.h"
-#include "core/HfccSource.h"
-#include "core/RigClient.h"
-#include "core/RigctldLauncher.h"
 #include "core/StationDb.h"
-#include "core/Updater.h"
 
 #include <QAction>
 #include <QApplication>
@@ -21,9 +17,7 @@
 #include <QComboBox>
 #include <QRegularExpression>
 #include <QEvent>
-#include <cmath>
 #include <QWheelEvent>
-#include <QPainter>
 #include <QHash>
 #include <QAbstractItemView>
 #include <QKeyEvent>
@@ -43,7 +37,6 @@
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QNetworkAccessManager>
 #include <QSortFilterProxyModel>
 #include <QScrollBar>
 #include <QStatusBar>
@@ -87,33 +80,12 @@ private:
 
 MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
     : QMainWindow(parent)
-    , m_dataDir(dataDir)
 {
-    m_db = new StationDb(m_dataDir + QStringLiteral("/stations.db"), this);
-    if (!m_db->open())
-        QMessageBox::critical(this, tr("Database error"),
-                              tr("Cannot open %1:\n%2").arg(m_db->filePath(), m_db->lastError()));
-    m_settings.load(m_db);
+    m_session = new Session(dataDir, this);
+    if (!m_session->isOpen())
+        QMessageBox::critical(this, tr("Database error"), m_session->lastError());
 
-    m_nam = new QNetworkAccessManager(this);
-    m_updater = new Updater(this);
-    m_updater->addSource(new EibiSource(m_db, m_nam, this));
-    m_updater->addSource(new HfccSource(m_db, m_nam, this));
-    m_updater->addSource(new AokiSource(m_db, m_nam, this));
-    m_updater->addSource(new TraficomSource(m_db, m_nam, this));
-    m_updateCheck = new UpdateCheck(m_nam, this);
-    connect(m_updateCheck, &UpdateCheck::finished, this, &MainWindow::showUpdateResult);
-    m_rig = new RigClient(this);
-    m_launcher = new RigctldLauncher(this);
-    connect(m_launcher, &RigctldLauncher::started, this, [this]() {
-        statusBar()->showMessage(tr("rigctld started"), 5000);
-        m_rig->reconnectSoon();
-    });
-    connect(m_launcher, &RigctldLauncher::stopped, this, [this](const QString& msg) {
-        statusBar()->showMessage(msg, 15000);
-    });
-    m_bandPlan = BandPlan::builtIn();
-    m_model = new StationModel(m_db, this);
+    m_model = new StationModel(m_session->db(), this);
     m_proxy = new StationFilter(this);
     m_proxy->setSourceModel(m_model);
     m_proxy->setSortRole(StationModel::SortRole);
@@ -121,31 +93,40 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
     m_proxy->setFilterKeyColumn(-1);
 
     buildUi();
-    applySettings();
+    applyViewSettings();
     // The rest of the window state is restored once, here: Settings does not
     // show it, and from now on the widgets hold the current values (Follow
     // rig may be unticked for this session only, the volume is saved on
     // exit). OK in Settings must not put the values from the start back.
+    const AppSettings& s = m_session->settings();
     {
         const QSignalBlocker b(m_followRig);
-        m_followRig->setChecked(m_settings.followRig);
+        m_followRig->setChecked(m_session->followRig());
     }
-    m_freqEdit->setReadOnly(m_settings.followRig);
-    m_player->setReceivers(m_settings.kiwiReceivers, m_settings.kiwiFavourites, m_settings.kiwiCurrent);
-    m_player->setManualMode(m_settings.kiwiMode);
-    m_player->setVolume(m_settings.kiwiVolume);
+    m_freqEdit->setReadOnly(m_session->followRig());
+    m_player->setReceivers(s.kiwiReceivers, s.kiwiFavourites, s.kiwiCurrent);
+    m_player->setManualMode(s.kiwiMode);
+    m_player->setVolume(s.kiwiVolume);
 
-    connect(m_rig, &RigClient::frequencyChanged, this, &MainWindow::onRigFrequency);
-    connect(m_rig, &RigClient::modeChanged, this, &MainWindow::onRigMode);
-    connect(m_rig, &RigClient::stateChanged, this, &MainWindow::onRigState);
-    connect(m_rig, &RigClient::answeringChanged, this, &MainWindow::onRigAnswering);
-    connect(m_updater, &Updater::progress, this, [this](const QString& m) {
-        statusBar()->showMessage(m);
+    connect(m_session, &Session::centreChanged, this, &MainWindow::onCentreChanged);
+    connect(m_session, &Session::followRigChanged, this, &MainWindow::onFollowRigChanged);
+    connect(m_session, &Session::rigModeChanged, this, &MainWindow::onRigMode);
+    connect(m_session, &Session::rigStateChanged, this, &MainWindow::onRigState);
+    connect(m_session, &Session::rigAnsweringChanged, this, &MainWindow::onRigAnswering);
+    connect(m_session, &Session::manualModeChosen, m_player, &KiwiPlayer::setManualMode);
+    connect(m_session, &Session::message, this, [this](const QString& text, int ms) {
+        statusBar()->showMessage(text, ms);
     });
-    connect(m_updater, &Updater::sourceFinished, this,
-            [this](ScheduleSource*, bool, const QString&) { updateDbStatus(); });
-    connect(m_updater, &Updater::finished, this, &MainWindow::onUpdateFinished);
-    connect(m_db, &StationDb::changed, this, &MainWindow::refreshLookup);
+    connect(m_session, &Session::settingsApplied, this, &MainWindow::onSettingsApplied);
+    connect(m_session, &Session::updateStarted, this, [this]() { m_updateAction->setEnabled(false); });
+    connect(m_session, &Session::updateFinished, this, &MainWindow::onUpdateFinished);
+    connect(m_session, &Session::sourcesChanged, this, &MainWindow::updateDbStatus);
+    connect(m_session, &Session::versionChecked, this, &MainWindow::showUpdateResult);
+    connect(m_session, &Session::launcherFailed, this, [this](const QString& error) {
+        QMessageBox::warning(this, tr("rigctld"),
+                             tr("Could not start rigctld:\n%1\n\nCheck File > Settings > Radio.").arg(error));
+    });
+    connect(m_session->db(), &StationDb::changed, this, &MainWindow::refreshLookup);
 
     m_tick = new QTimer(this);
     m_tick->setInterval(1000);
@@ -153,10 +134,10 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
     m_tick->start();
     tick();
 
-    restoreGeometry(QByteArray::fromBase64(
-        m_db->meta(QStringLiteral("window.geometry")).toLatin1()));
+    StationDb* db = m_session->db();
+    restoreGeometry(QByteArray::fromBase64(db->meta(QStringLiteral("window.geometry")).toLatin1()));
     const QByteArray savedColumns = QByteArray::fromBase64(
-        m_db->meta(QStringLiteral("window.columns")).toLatin1());
+        db->meta(QStringLiteral("window.columns")).toLatin1());
     if (!savedColumns.isEmpty() && m_table->horizontalHeader()->restoreState(savedColumns))
         m_columnsFitted = true;   // the user's layout is back; no automatic fit
     // The saved state also carries resize modes; a state written by an
@@ -178,64 +159,12 @@ MainWindow::MainWindow(const QString& dataDir, double startKHz, QWidget* parent)
     m_freqLabel->installEventFilter(this);
     m_freqLabel->setToolTip(tr("Without a rig: turn the mouse wheel over a digit to change it"));
 
-    if (startKHz > 0.0)
-    {
-        // Manual start for this session only; the stored "Follow rig"
-        // preference is left untouched.
-        const QSignalBlocker b(m_followRig);
-        m_followRig->setChecked(false);
-        m_freqEdit->setReadOnly(false);
-        m_freqEdit->setText(QString::number(startKHz, 'f', 3));
-        setCentreKHz(startKHz, false);
-    }
-    else if (!m_followRig->isChecked())
-    {
-        // no rig wanted: start where the listener left off (49 m at first)
-        m_freqEdit->setText(QString::number(m_settings.manualKHz, 'f', 3));
-        setCentreKHz(m_settings.manualKHz, false);
-    }
-
     updateDbStatus();
-    if (m_updater->anyStale(m_settings.refreshDays))
-        QTimer::singleShot(0, this, [this]() {
-            m_updateAction->setEnabled(false);
-            m_updater->update(m_settings.refreshDays, false);
-        });
-
-    applyLauncher();
-    m_rig->start();
-    // ask once after start, then every 24 hours while the program runs
-    QTimer::singleShot(3000, this, &MainWindow::startUpdateCheck);
-    auto* daily = new QTimer(this);
-    daily->setInterval(24 * 60 * 60 * 1000);
-    connect(daily, &QTimer::timeout, this, &MainWindow::startUpdateCheck);
-    daily->start();
-}
-
-void MainWindow::startUpdateCheck()
-{
-    if (!m_settings.updateCheck)
-    {
-        m_updateLabel->hide();
-        return;
-    }
-    m_updateCheck->run(QUrl(m_settings.updateUrl));
+    m_session->start(startKHz);
 }
 
 void MainWindow::showUpdateResult(const UpdateCheck::Result& r)
 {
-    if (m_manualUpdateCheck)
-    {
-        // asked for by hand: say what came back, also when there is nothing new
-        m_manualUpdateCheck = false;
-        if (!r.valid)
-            statusBar()->showMessage(tr("Could not reach otd.oh2gba.eu for the version check"), 10000);
-        else if (r.newer)
-            statusBar()->showMessage(tr("Version %1 is available, see the link above the clock").arg(r.latest), 15000);
-        else
-            statusBar()->showMessage(tr("You have the current version, %1")
-                                         .arg(QCoreApplication::applicationVersion()), 10000);
-    }
     if (!r.valid)
     {
         m_updateLabel->hide();
@@ -262,32 +191,9 @@ void MainWindow::showUpdateResult(const UpdateCheck::Result& r)
 
 MainWindow::~MainWindow()
 {
-    // The socket's destructor emits disconnected(); by then the widgets that
-    // listen to the rig state are gone, so cut the connections first.
-    m_rig->disconnect(this);
-    m_rig->stop();
-    m_launcher->stop();
-}
-
-void MainWindow::applyLauncher()
-{
-    if (!m_settings.launchRigctld)
-    {
-        m_launcher->stop();
-        return;
-    }
-    RigctldLauncher::Config cfg;
-    cfg.enabled = true;
-    cfg.path = m_settings.rigctldPath;
-    cfg.model = m_settings.rigModel;
-    cfg.device = m_settings.rigDevice;
-    cfg.baud = m_settings.rigBaud;
-    cfg.extraArgs = m_settings.rigctldExtra;
-    cfg.port = quint16(m_settings.rigPort);
-    if (!m_launcher->start(cfg))
-        QMessageBox::warning(this, tr("rigctld"),
-                             tr("Could not start rigctld:\n%1\n\nCheck File > Settings > Radio.")
-                                 .arg(m_launcher->lastError()));
+    // the widgets that listen to the rig go with this window: nothing the
+    // rig's socket says on its way out may reach them
+    m_session->stop();
 }
 
 void MainWindow::buildUi()
@@ -305,17 +211,8 @@ void MainWindow::buildUi()
 
     // --- menu ---------------------------------------------------------
     QMenu* file = menuBar()->addMenu(tr("&File"));
-    m_updateAction = file->addAction(tr("&Update databases now"), this, &MainWindow::updateDatabases);
-    file->addAction(tr("Check for a &new version"), this, [this]() {
-        if (!m_settings.updateCheck)
-        {
-            statusBar()->showMessage(tr("Version check is switched off in Settings"), 5000);
-            return;
-        }
-        statusBar()->showMessage(tr("Checking for a new version ..."), 5000);
-        m_manualUpdateCheck = true;   // this time the answer is spoken out
-        startUpdateCheck();
-    });
+    m_updateAction = file->addAction(tr("&Update databases now"), m_session, &Session::updateDatabases);
+    file->addAction(tr("Check for a &new version"), m_session, &Session::checkForNewVersionNow);
     file->addAction(tr("&Settings..."), this, &MainWindow::openSettings);
     file->addSeparator();
     file->addAction(tr("&Quit"), QKeySequence::Quit, qApp, &QApplication::quit);
@@ -331,8 +228,8 @@ void MainWindow::buildUi()
     m_scaleAction->setCheckable(true);
     m_scaleAction->setChecked(true);
     connect(m_scaleAction, &QAction::toggled, this, [this](bool on) {
-        m_settings.showScale = on;
-        m_settings.save(m_db);   // at once, not only on a clean exit
+        m_session->settings().showScale = on;
+        m_session->saveSettings();   // at once, not only on a clean exit
         m_scale->setVisible(on);
         if (on)
             updateScale();
@@ -341,8 +238,8 @@ void MainWindow::buildUi()
     m_tableAction->setCheckable(true);
     m_tableAction->setChecked(true);
     connect(m_tableAction, &QAction::toggled, this, [this](bool on) {
-        m_settings.showTable = on;
-        m_settings.save(m_db);
+        m_session->settings().showTable = on;
+        m_session->saveSettings();
         m_table->setVisible(on);
         if (on)
         {
@@ -354,11 +251,11 @@ void MainWindow::buildUi()
     m_playerAction->setCheckable(true);
     m_playerAction->setChecked(true);
     connect(m_playerAction, &QAction::toggled, this, [this](bool on) {
-        m_settings.showPlayer = on;
-        m_settings.save(m_db);
+        m_session->settings().showPlayer = on;
+        m_session->saveSettings();
         m_player->setVisible(on);
-        if (on && m_kiwiDirectory->receivers().isEmpty())
-            m_kiwiDirectory->refresh(true);   // first fill; later refreshes come with use
+        if (on && m_session->kiwiDirectory()->receivers().isEmpty())
+            m_session->kiwiDirectory()->refresh(true);   // first fill; later refreshes come with use
         else
             m_player->stop();
     });
@@ -532,33 +429,31 @@ void MainWindow::buildUi()
         tuneTo(kHz, QString());
     });
     connect(m_scale, &DialScale::spanChanged, this, [this](double kHz) {
-        m_settings.scaleSpanKHz = kHz;   // the zoom is remembered
-        scheduleSave();
+        m_session->settings().scaleSpanKHz = kHz;   // the zoom is remembered
+        m_session->saveSettingsSoon();
     });
 
     m_player = new KiwiPlayer;
     m_player->setVisible(false);
-    m_kiwiDirectory = new KiwiDirectory(m_db, m_nam, this);
-    m_player->setDirectory(m_kiwiDirectory->receivers());
-    connect(m_kiwiDirectory, &KiwiDirectory::updated, this, [this]() {
-        m_player->setDirectory(m_kiwiDirectory->receivers());
-    });
-    connect(m_kiwiDirectory, &KiwiDirectory::failed, this, [this](const QString& why) {
-        statusBar()->showMessage(tr("KiwiSDR directory not available: %1").arg(why), 8000);
+    KiwiDirectory* directory = m_session->kiwiDirectory();
+    m_player->setDirectory(directory->receivers());
+    connect(directory, &KiwiDirectory::updated, this, [this, directory]() {
+        m_player->setDirectory(directory->receivers());
     });
     // the receiver list is refreshed when the player is actually used, and
     // at most once a week (the file changes every few minutes, so a
     // conditional request would not save anything)
-    connect(m_player, &KiwiPlayer::playRequested, this, [this]() { m_kiwiDirectory->refresh(); });
+    connect(m_player, &KiwiPlayer::playRequested, this, [directory]() { directory->refresh(); });
     connect(m_player, &KiwiPlayer::manualModeChanged, this, [this](const QString& mode) {
-        m_settings.kiwiMode = mode;
-        m_settings.save(m_db);
+        m_session->settings().kiwiMode = mode;
+        m_session->saveSettings();
     });
     connect(m_player, &KiwiPlayer::receiversChanged, this, [this]() {
-        m_settings.kiwiReceivers = m_player->receivers();
-        m_settings.kiwiFavourites = m_player->favourites();
-        m_settings.kiwiCurrent = m_player->currentReceiver();
-        m_settings.save(m_db);
+        AppSettings& s = m_session->settings();
+        s.kiwiReceivers = m_player->receivers();
+        s.kiwiFavourites = m_player->favourites();
+        s.kiwiCurrent = m_player->currentReceiver();
+        m_session->saveSettings();
     });
 
     auto* central = new QWidget;
@@ -645,133 +540,49 @@ QModelIndex MainWindow::sourceIndex(const QModelIndex& proxyIndex) const
     return proxy ? proxy->mapToSource(proxyIndex) : QModelIndex();
 }
 
-void MainWindow::applySettings()
+// The widgets that mirror a setting: after the start and after OK in Settings.
+void MainWindow::applyViewSettings()
 {
-    m_rig->setEndpoint(m_settings.rigHost, quint16(m_settings.rigPort));
-    m_rig->setPollInterval(m_settings.pollIntervalMs);
-    if (ScheduleSource* src = m_updater->source(QStringLiteral("eibi")))
-    {
-        src->setBaseUrl(QUrl(m_settings.eibiUrl));
-        src->setEnabled(m_settings.eibiEnabled);
-    }
-    if (ScheduleSource* src = m_updater->source(QStringLiteral("hfcc")))
-    {
-        src->setBaseUrl(QUrl(m_settings.hfccUrl));
-        src->setEnabled(m_settings.hfccEnabled);
-    }
-    if (ScheduleSource* src = m_updater->source(QStringLiteral("aoki")))
-    {
-        src->setBaseUrl(QUrl(m_settings.aokiUrl));
-        src->setEnabled(m_settings.aokiEnabled);
-    }
-    if (ScheduleSource* src = m_updater->source(QStringLiteral("traficom")))
-    {
-        src->setBaseUrl(QUrl(m_settings.traficomUrl));
-        src->setEnabled(m_settings.traficomEnabled);
-    }
-
+    const AppSettings& s = m_session->settings();
     const QSignalBlocker b1(m_tolerance), b2(m_onAirOnly), b3(m_onTopAction),
         b4(m_scaleAction), b5(m_tableAction);
-    m_scaleAction->setChecked(m_settings.showScale);
-    m_scale->setVisible(m_settings.showScale);
-    m_scale->setSpanKHz(m_settings.scaleSpanKHz);
-    m_tableAction->setChecked(m_settings.showTable);
-    m_table->setVisible(m_settings.showTable);
+    m_scaleAction->setChecked(s.showScale);
+    m_scale->setVisible(s.showScale);
+    m_scale->setSpanKHz(s.scaleSpanKHz);
+    m_tableAction->setChecked(s.showTable);
+    m_table->setVisible(s.showTable);
     {
         const QSignalBlocker b6(m_playerAction);
-        m_playerAction->setChecked(m_settings.showPlayer);
+        m_playerAction->setChecked(s.showPlayer);
     }
-    m_player->setVisible(m_settings.showPlayer);
-    if (m_settings.showPlayer)
-        if (m_kiwiDirectory->receivers().isEmpty())
-            m_kiwiDirectory->refresh(true);   // first fill only
-    m_tolerance->setValue(m_settings.toleranceKHz);
+    m_player->setVisible(s.showPlayer);
+    if (s.showPlayer)
+        if (m_session->kiwiDirectory()->receivers().isEmpty())
+            m_session->kiwiDirectory()->refresh(true);   // first fill only
+    m_tolerance->setValue(s.toleranceKHz);
     updateToleranceHint();
-    m_onAirOnly->setChecked(m_settings.onAirOnly);
-    m_proxy->setOnAirOnly(m_settings.onAirOnly);
-    m_onTopAction->setChecked(m_settings.alwaysOnTop);
-    onAlwaysOnTopToggled(m_settings.alwaysOnTop);
-}
-
-QString MainWindow::formatKHz(double kHz)
-{
-    // 7125.940 -> "7 125.940"
-    QString s = QString::number(kHz, 'f', 3);
-    const int dot = s.indexOf(QLatin1Char('.'));
-    for (int i = dot - 3; i > 0; i -= 3)
-        s.insert(i, QLatin1Char(' '));
-    return s;
+    m_onAirOnly->setChecked(s.onAirOnly);
+    m_proxy->setOnAirOnly(s.onAirOnly);
+    m_onTopAction->setChecked(s.alwaysOnTop);
+    onAlwaysOnTopToggled(s.alwaysOnTop);
 }
 
 void MainWindow::updateHeader()
 {
-    if (m_centreKHz > 0.0)
-        m_freqLabel->setText(formatKHz(m_centreKHz) + tr(" kHz"));
-    else
-        m_freqLabel->setText(QStringLiteral("---.--- kHz"));
+    m_freqLabel->setText(m_session->frequencyText());
+    m_modeLabel->setText(m_session->modeText());
 
-    if (m_followRig->isChecked())
-        m_modeLabel->setText(m_rigConnected ? m_rigMode : tr("no rig"));
-    else
-        m_modeLabel->setText(tr("manual"));
-
-    QString band = m_centreKHz > 0.0 ? m_bandPlan.describe(m_centreKHz, m_settings.ituRegion) : QString();
-    const QVector<BandPlan::Band> bands = m_bandPlan.lookup(m_centreKHz, m_settings.ituRegion);
-    QString kind = bands.isEmpty() ? QString() : bands.first().kind;
-    QString tip = tr("Allocation of the tuned frequency (ITU region set in Settings)");
-    if (m_settings.traficomEnabled && m_centreKHz > 0.0)
-    {
-        // the national table replaces the built-in plan wherever it has a row
-        const QList<StationDb::Allocation> rows = m_db->allocationsAt(m_centreKHz);
-        if (!rows.isEmpty())
-        {
-            QStringList names;
-            for (const StationDb::Allocation& a : rows)
-            {
-                QString n = a.usage.isEmpty() ? a.service : a.usage;
-                if (!a.service.isEmpty() && a.service.compare(n, Qt::CaseInsensitive) != 0)
-                    n += QStringLiteral(" (%1)").arg(a.service.toLower());
-                if (!names.contains(n))
-                    names << n;
-            }
-            if (names.size() > 3)
-            {
-                const int more = names.size() - 3;
-                names = names.mid(0, 3);
-                names << tr("+%1 more").arg(more);
-            }
-            band = names.join(QStringLiteral(" \u00b7 "));
-            const QString svc = rows.first().service.toUpper();
-            kind = svc.contains(QLatin1String("BROADCAST")) ? QStringLiteral("broadcast")
-                 : svc.contains(QLatin1String("AMATEUR")) ? QStringLiteral("amateur")
-                 : svc.contains(QLatin1String("AERONAUTICAL")) ? QStringLiteral("aero")
-                 : svc.contains(QLatin1String("MARITIME")) ? QStringLiteral("maritime")
-                 : svc.contains(QLatin1String("STANDARD FREQ")) ? QStringLiteral("time")
-                 : svc.contains(QLatin1String("RADIONAVIGATION")) ? QStringLiteral("beacon")
-                 : QStringLiteral("other");
-            tip = tr("Traficom allocation table:\n");
-            for (const StationDb::Allocation& a : rows)
-            {
-                tip += QStringLiteral("%1 - %2 kHz: %3").arg(a.lowKHz, 0, 'f', 3).arg(a.highKHz, 0, 'f', 3)
-                           .arg(a.usage.isEmpty() ? a.service : a.usage);
-                if (!a.service.isEmpty() && a.service.compare(a.usage, Qt::CaseInsensitive) != 0)
-                    tip += QStringLiteral(" [%1]").arg(a.service);
-                if (!a.mode.isEmpty())
-                    tip += QStringLiteral(", %1").arg(a.mode);
-                if (!a.info.isEmpty())
-                    tip += QStringLiteral(". %1").arg(a.info);
-                if (!a.comment.isEmpty())
-                    tip += QStringLiteral(" %1").arg(a.comment);
-                tip += QLatin1Char('\n');
-            }
-        }
-    }
-    m_bandLabel->setToolTip(tip.trimmed());
-    if (band.isEmpty() && m_centreKHz > 0.0)
+    const BandLine line = m_session->bandLine();
+    QString band = line.text;
+    m_bandLabel->setToolTip(line.tooltip.isEmpty()
+                                ? tr("Allocation of the tuned frequency (ITU region set in Settings)")
+                                : line.tooltip);
+    if (band.isEmpty() && m_session->centreKHz() > 0.0)
         band = tr("no allocation listed");
     QString colour;
-    if (!kind.isEmpty())
+    if (!line.kind.isEmpty())
     {
+        const QString& kind = line.kind;
         if (kind == QLatin1String("broadcast"))     colour = QStringLiteral("#e8b339");
         else if (kind == QLatin1String("amateur"))  colour = QStringLiteral("#7ee787");
         else if (kind == QLatin1String("aero"))     colour = QStringLiteral("#79c0ff");
@@ -786,18 +597,11 @@ void MainWindow::updateHeader()
     m_bandLabel->setText(band);
 }
 
-void MainWindow::setCentreKHz(double kHz, bool fromRig)
+void MainWindow::onCentreChanged(double kHz, Session::Origin)
 {
-    if (fromRig && !m_followRig->isChecked())
-        return;
-    m_centreKHz = kHz;
-    if (!fromRig && kHz > 0.0 && !qFuzzyCompare(kHz + 1.0, m_settings.manualKHz + 1.0))
+    if (!m_fromEdit)
     {
-        m_settings.manualKHz = kHz;   // remembered for the next start without a rig
-        scheduleSave();               // once tuning pauses, not on every step
-    }
-    if (fromRig)
-    {
+        // the field says the same, unless it is what was just read
         const QSignalBlocker b(m_freqEdit);
         m_freqEdit->setText(QString::number(kHz, 'f', 3));
     }
@@ -807,35 +611,20 @@ void MainWindow::setCentreKHz(double kHz, bool fromRig)
 
 void MainWindow::refreshLookup()
 {
-    const QString text = m_filter->text().trimmed();
-    StationList list;
-    const bool dial = text.isEmpty() && m_centreKHz > 0.0;
+    const double centre = m_session->centreKHz();
+    const Session::Rows rows = m_session->rows(m_filter->text(), !m_model->isDialOrder());
+    const bool dial = rows.kind == Session::Lookup::Dial;
     m_dialActive = dial;
-    setSearching(!text.isEmpty());
-    if (!text.isEmpty())
+    setSearching(rows.kind == Session::Lookup::Search);
+    if (rows.same)
     {
-        // the same search again, only the VFO moved: keep the list as it
-        // is and just update the distances, so tuning to a row does not
-        // reshuffle the results
-        const QString key = text + QLatin1Char('\n') + enabledSources().join(QLatin1Char(','));
-        if (key == m_lastSearchKey && !m_model->isDialOrder())
-        {
-            m_model->setCentre(m_centreKHz);
-            updateCountLabel();
-            updateScale();
-            updatePlayer();
-            return;
-        }
-        m_lastSearchKey = key;
-        list = m_db->search(text, enabledSources());
-    }
-    else
-    {
-        m_lastSearchKey.clear();
-        if (dial)
-            list = m_db->around(m_centreKHz, 1000, enabledSources());
-        else if (m_centreKHz > 0.0)
-            list = m_db->lookup(m_centreKHz, m_tolerance->value(), enabledSources());
+        // the same search again, only the VFO moved: the list stays, the
+        // distances follow
+        m_model->setCentre(centre);
+        updateCountLabel();
+        updateScale();
+        updatePlayer();
+        return;
     }
 
     if (dial)
@@ -846,7 +635,7 @@ void MainWindow::refreshLookup()
         const QScreen* scr = screen();
         const int screenH = scr ? scr->availableGeometry().height() : 1200;
         m_model->setPadding(screenH / rowH / 2 + 2);
-        m_model->setDialEntries(list, m_centreKHz);
+        m_model->setDialEntries(rows.list, centre);
         m_table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         centreOnMarker();
         QTimer::singleShot(0, this, &MainWindow::centreOnMarker);
@@ -854,7 +643,7 @@ void MainWindow::refreshLookup()
     else
     {
         m_table->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        m_model->setEntries(list, m_centreKHz);
+        m_model->setEntries(rows.list, centre);
     }
     m_lastEvalMinute = QDateTime::currentDateTimeUtc().time().minute();
     updateCountLabel();
@@ -934,48 +723,18 @@ void MainWindow::onRowActivated(const QModelIndex& index)
         return;
     const QString mode = m_model->data(m_model->index(src.row(), StationModel::ColMode),
                                        Qt::DisplayRole).toString();
-
-
     tuneTo(kHz, mode, m_model->entryAt(src.row()).id);
 }
 
 void MainWindow::tuneTo(double kHz, const QString& mode, qint64 flashId)
 {
-    // Follow rig unticked means the listener has set the rig aside for now
-    // (listening online, say): then a station goes to the display and the
-    // online receiver, not to the rig, and the tick stays off.
-    if (m_followRig->isChecked() && m_rig->isConnected() && m_rig->isAnswering())
-    {
-        if (flashId != 0)
-        {
-            // a short blink on the row, as a receipt
-            m_model->setFlash(flashId);
-            QTimer::singleShot(350, this, [this]() { m_model->setFlash(0); });
-        }
-        // Send it to the radio and let the display follow the rig's answer.
-        // Mode first: many rigs shift the dial when the mode changes (a CW or
-        // SSB offset), so a frequency set before the mode would land off.
-        static const QStringList rigModes = {QStringLiteral("AM"), QStringLiteral("USB"),
-                                             QStringLiteral("LSB"), QStringLiteral("CW")};
-        if (rigModes.contains(mode))
-            m_rig->setMode(mode);
-        m_rig->setFrequency(qRound64(kHz * 1000.0));
-        statusBar()->showMessage(tr("Tuning rig to %1 kHz %2").arg(kHz, 0, 'f', 3).arg(mode), 5000);
-        return;
-    }
-
-    if (m_followRig->isChecked())
-        m_followRig->setChecked(false);   // no rig answering: manual mode
     if (flashId != 0)
     {
-        m_model->setFlash(flashId);   // the same receipt as when the rig is tuned
+        // a short blink on the row, as a receipt
+        m_model->setFlash(flashId);
         QTimer::singleShot(350, this, [this]() { m_model->setFlash(0); });
     }
-    // the station's mode for the online receiver, when it is one it has
-    if (!mode.isEmpty())
-        m_player->setManualMode(mode);
-    m_freqEdit->setText(QString::number(kHz, 'f', 3));
-    setCentreKHz(kHz, false);
+    m_session->tuneTo(kHz, mode);
 }
 
 // The scale shows one label per frequency: the best entry on it (on air
@@ -984,38 +743,26 @@ void MainWindow::updateScale()
 {
     if (m_scale->isHidden())   // switched off in the View menu
         return;
-    m_scale->setCentre(m_centreKHz);
+    m_scale->setCentre(m_session->centreKHz());
     m_scale->setHighlightKHz(m_tolerance->value());
     if (!m_dialActive)
         return;   // keep the last marks while a search is open
     // the same rows the list shows: "On air only" applies to the scale too
-    QVector<DialScale::Mark> marks;
-    const int rows = m_proxy->rowCount();
-    for (int pr = 0; pr < rows; ++pr)
+    QVector<DialMark> rows;
+    const int count = m_proxy->rowCount();
+    for (int pr = 0; pr < count; ++pr)
     {
         const int r = m_proxy->mapToSource(m_proxy->index(pr, 0)).row();
         if (r < 0 || m_model->isBlank(r))
             continue;
         const StationEntry& e = m_model->entryAt(r);
-        const int rank = StationModel::rank(m_model->statusAt(r));
-        if (!marks.isEmpty() && qFuzzyCompare(marks.last().kHz + 1.0, e.kHz + 1.0))
-        {
-            DialScale::Mark& m = marks.last();
-            ++m.count;
-            if (rank < m.rank)
-            {
-                m.rank = rank;
-                m.name = m_db->stationOf(e);
-            }
-            continue;
-        }
-        DialScale::Mark m;
+        DialMark m;
         m.kHz = e.kHz;
-        m.name = m_db->stationOf(e);
-        m.rank = rank;
-        marks.push_back(m);
+        m.name = m_session->db()->stationOf(e);
+        m.rank = StationModel::rank(m_model->statusAt(r));
+        rows.push_back(m);
     }
-    m_scale->setMarks(marks);
+    m_scale->setMarks(groupDialMarks(rows));
 }
 
 void MainWindow::updateCountLabel()
@@ -1032,51 +779,41 @@ void MainWindow::updateCountLabel()
                               .arg(m_model->entryCount()));
 }
 
-QStringList MainWindow::enabledSources() const
-{
-    // Returns the sources to leave out: downloadable ones that are switched
-    // off. Everything else in the database is shown, the personal list and
-    // any list that was put there by other means included.
-    QStringList disabled;
-    for (ScheduleSource* src : m_updater->sources())
-        if (!src->isEnabled())
-            disabled << src->id();
-    return disabled;
-}
-
 void MainWindow::addMyStation()
 {
     StationEntry e;
-    e.kHz = m_centreKHz;
-    e.mode = m_followRig->isChecked() && m_rigConnected ? m_rigMode : QString();
+    e.kHz = m_session->centreKHz();
+    e.mode = m_session->followRig() && m_session->rigAnswering() ? m_session->rigMode() : QString();
     StationEditDialog dlg(e, this);
     if (dlg.exec() != QDialog::Accepted)
         return;
     StationEntry fresh = dlg.entry();
-    if (!m_db->insertEntry(fresh))
-        QMessageBox::warning(this, tr("My stations"), m_db->lastError());
-    m_lastSearchKey.clear();   // the data changed: search again
+    if (!m_session->db()->insertEntry(fresh))
+        QMessageBox::warning(this, tr("My stations"), m_session->db()->lastError());
+    m_session->forgetSearch();   // the data changed: search again
     refreshLookup();
 }
 
 void MainWindow::openMyStations()
 {
-    MyStationsDialog dlg(m_db, m_centreKHz, m_rigConnected ? m_rigMode : QString(), this);
+    MyStationsDialog dlg(m_session->db(), m_session->centreKHz(),
+                         m_session->rigAnswering() ? m_session->rigMode() : QString(), this);
     dlg.exec();
-    m_lastSearchKey.clear();   // the data changed: search again
+    m_session->forgetSearch();   // the data changed: search again
     refreshLookup();
 }
 
 void MainWindow::tableContextMenu(const QPoint& pos)
 {
     QTableView* table = m_menuTable ? m_menuTable : m_table;
+    StationDb* db = m_session->db();
     const QModelIndex proxyIdx = table->indexAt(pos);
     const QModelIndex idx = sourceIndex(proxyIdx);
     QMenu menu(this);
     if (idx.isValid() && !m_model->isBlank(idx.row()))
     {
         const StationEntry e = m_model->entryAt(idx.row());
-        const QString station = m_db->stationOf(e);
+        const QString station = db->stationOf(e);
         const QString mode = StationDb::modeOf(e);
         menu.addAction(tr("Tune to %1 kHz").arg(e.kHz), this, [this, proxyIdx]() {
             onRowActivated(proxyIdx);
@@ -1093,38 +830,38 @@ void MainWindow::tableContextMenu(const QPoint& pos)
         menu.addSeparator();
         if (e.source == userSourceId())
         {
-            menu.addAction(tr("Edit my entry..."), this, [this, e]() {
+            menu.addAction(tr("Edit my entry..."), this, [this, db, e]() {
                 StationEditDialog dlg(e, this);
                 if (dlg.exec() == QDialog::Accepted)
                 {
-                    m_db->updateEntry(dlg.entry());
-                    m_lastSearchKey.clear();   // the data changed: search again
+                    db->updateEntry(dlg.entry());
+                    m_session->forgetSearch();   // the data changed: search again
                     refreshLookup();
                 }
             });
-            menu.addAction(tr("Delete my entry"), this, [this, e]() {
+            menu.addAction(tr("Delete my entry"), this, [this, db, e]() {
                 if (QMessageBox::question(this, tr("Delete"), tr("Delete \"%1\" on %2 kHz?")
                                                                     .arg(e.station).arg(e.kHz))
                     == QMessageBox::Yes)
                 {
-                    m_db->removeEntry(e.id);
-                    m_lastSearchKey.clear();   // the data changed: search again
+                    db->removeEntry(e.id);
+                    m_session->forgetSearch();   // the data changed: search again
                     refreshLookup();
                 }
             });
         }
         else
         {
-            menu.addAction(tr("Copy to my stations..."), this, [this, e]() {
+            menu.addAction(tr("Copy to my stations..."), this, [this, db, e]() {
                 // the listener's own entry, filled with what the list shows
                 StationEntry copy = e;
                 copy.id = 0;
                 copy.source = userSourceId();
-                copy.station = m_db->stationOf(e);
-                copy.lang = m_db->languageOf(e);
-                copy.site = m_db->siteOf(e);
-                copy.target = m_db->targetOf(e);
-                copy.days = m_db->daysOf(e);
+                copy.station = db->stationOf(e);
+                copy.lang = db->languageOf(e);
+                copy.site = db->siteOf(e);
+                copy.target = db->targetOf(e);
+                copy.days = db->daysOf(e);
                 copy.mode = StationDb::modeOf(e);
                 copy.remarks = StationDb::remarksOf(e);
                 copy.power.clear();
@@ -1134,64 +871,29 @@ void MainWindow::tableContextMenu(const QPoint& pos)
                 if (dlg.exec() == QDialog::Accepted)
                 {
                     StationEntry fresh = dlg.entry();
-                    m_db->insertEntry(fresh);
-                    m_lastSearchKey.clear();   // the data changed: search again
+                    db->insertEntry(fresh);
+                    m_session->forgetSearch();   // the data changed: search again
                     refreshLookup();
                 }
             });
         }
         menu.addSeparator();
     }
-    menu.addAction(tr("Add station at %1 kHz...").arg(m_centreKHz, 0, 'f', 3), this, &MainWindow::addMyStation);
+    menu.addAction(tr("Add station at %1 kHz...").arg(m_session->centreKHz(), 0, 'f', 3), this,
+                   &MainWindow::addMyStation);
     menu.addAction(tr("My stations..."), this, &MainWindow::openMyStations);
     menu.exec(table->viewport()->mapToGlobal(pos));
 }
 
 void MainWindow::updateDbStatus()
 {
-    QStringList parts;
     QString tip;
-    for (ScheduleSource* src : m_updater->sources())
-    {
-        // the status bar counts stations; the allocation table is not one
-        if (!src->isEnabled() || src->id() == QLatin1String("traficom"))
-            continue;
-        const int n = src->count();
-        if (n == 0)
-        {
-            parts << tr("%1: no data").arg(src->displayName());
-            continue;
-        }
-        parts << (src->season().isEmpty()
-                      ? QStringLiteral("%1: %2").arg(src->displayName()).arg(n)
-                      : QStringLiteral("%1 %2: %3").arg(src->displayName(), src->season().toUpper()).arg(n));
-        const QDateTime updated = src->lastUpdate().toLocalTime();
-        tip += tr("%1 %2: %3 entries, checked %4\n")
-                   .arg(src->displayName(), src->season().toUpper())
-                   .arg(n)
-                   .arg(updated.isValid() ? updated.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                                          : tr("never"));
-    }
-    QStringList known;
-    for (ScheduleSource* src : m_updater->sources())
-        known << src->id();
-    known << userSourceId();
-    for (const auto& sc : m_db->sourceCounts())
-        if (!known.contains(sc.first))
-            parts << QStringLiteral("%1: %2").arg(sc.first.toUpper()).arg(sc.second);
-    m_dbStatus->setText(parts.isEmpty() ? tr("No sources enabled") : parts.join(QStringLiteral("  |  ")));
-    m_dbStatus->setToolTip(tip.trimmed());
+    m_dbStatus->setText(m_session->sourcesStatus(&tip));
+    m_dbStatus->setToolTip(tip);
 }
 
-void MainWindow::onRigFrequency(qint64 hz)
+void MainWindow::onRigMode(const QString&)
 {
-    m_rigHz = hz;
-    setCentreKHz(hz / 1000.0, true);
-}
-
-void MainWindow::onRigMode(const QString& mode, int)
-{
-    m_rigMode = mode;
     updateHeader();
     updatePlayer();
 }
@@ -1200,12 +902,13 @@ void MainWindow::onRigMode(const QString& mode, int)
 // there is a rig, otherwise in AM.
 void MainWindow::updatePlayer()
 {
-    if (m_centreKHz <= 0.0)
+    const double centre = m_session->centreKHz();
+    if (centre <= 0.0)
         return;
     // the online receiver follows the rig when there is one, never a
     // frequency merely typed for a look
-    const bool rig = m_rig->isAnswering() && m_followRig->isChecked() && m_rigHz > 0;
-    m_player->tune(rig ? m_rigHz / 1000.0 : m_centreKHz, rig ? m_rigMode : QString());
+    const bool rig = m_session->rigAnswering() && m_session->followRig() && m_session->rigHz() > 0;
+    m_player->tune(rig ? m_session->rigHz() / 1000.0 : centre, rig ? m_session->rigMode() : QString());
 }
 
 void MainWindow::onRigState(bool, const QString& message)
@@ -1218,56 +921,48 @@ void MainWindow::onRigState(bool, const QString& message)
 
 void MainWindow::onRigAnswering(bool answering)
 {
-    m_rigConnected = answering;
+    // (a rig that never answered: the Session has already put the
+    // remembered frequency on the dial, through centreChanged)
     if (answering)
         m_rigText->clear();
-    else
-    {
-        m_rigHz = 0;   // nothing the rig said still holds
-        if (m_followRig->isChecked())
-            m_rigText->setText(rigSilentText());
-        if (m_centreKHz <= 0.0)
-        {
-            // nothing has ever come from a rig: show the remembered frequency
-            // so a listener without a radio is not left with an empty dial
-            m_centreKHz = m_settings.manualKHz;
-            m_freqEdit->setText(QString::number(m_centreKHz, 'f', 3));
-            refreshLookup();
-        }
-    }
+    else if (m_session->followRig())
+        m_rigText->setText(m_session->rigSilentText());
     updateHeader();
     updatePlayer();   // the mode box changes hands with the rig
 }
 
-QString MainWindow::rigSilentText() const
-{
-    return tr("Rig not answering (%1:%2)").arg(m_settings.rigHost).arg(m_settings.rigPort);
-}
-
 void MainWindow::onFrequencyEdited()
 {
-    if (m_followRig->isChecked())
+    if (m_session->followRig())
         return;
     bool ok = false;
     const double kHz = QString(m_freqEdit->text()).replace(QLatin1Char(','), QLatin1Char('.')).toDouble(&ok);
     if (ok && kHz > 0.0)
-        setCentreKHz(kHz, false);
+    {
+        m_fromEdit = true;   // what was typed stays as typed
+        m_session->setManualKHz(kHz);
+        m_fromEdit = false;
+    }
 }
 
 void MainWindow::onFollowToggled(bool follow)
 {
-    m_settings.followRig = follow;
-    m_settings.save(m_db);
+    m_session->setFollowRig(follow);
+}
+
+void MainWindow::onFollowRigChanged(bool follow)
+{
+    {
+        const QSignalBlocker b(m_followRig);
+        m_followRig->setChecked(follow);
+    }
     if (!follow)
         m_rigText->clear();   // manual mode: no complaint about a silent rig
-    else if (!m_rig->isAnswering() && m_rigText->text().isEmpty())
-        m_rigText->setText(rigSilentText());
+    else if (!m_session->rigAnswering() && m_rigText->text().isEmpty())
+        m_rigText->setText(m_session->rigSilentText());
     updatePlayer();           // the mode box changes hands with the switch
     m_freqEdit->setReadOnly(follow);
-    if (follow && m_rigHz > 0)
-        setCentreKHz(m_rigHz / 1000.0, true);
-    else
-        updateHeader();
+    updateHeader();
     if (!follow)
     {
         m_freqEdit->setFocus();
@@ -1277,8 +972,8 @@ void MainWindow::onFollowToggled(bool follow)
 
 void MainWindow::onToleranceChanged(double kHz)
 {
-    m_settings.toleranceKHz = kHz;
-    scheduleSave();
+    m_session->settings().toleranceKHz = kHz;
+    m_session->saveSettingsSoon();
     m_model->setHighlightKHz(kHz);   // recolour only, the list stays put
     updateScale();
 }
@@ -1290,8 +985,8 @@ void MainWindow::updateToleranceHint()
 
 void MainWindow::onOnAirOnlyToggled(bool on)
 {
-    m_settings.onAirOnly = on;
-    m_settings.save(m_db);
+    m_session->settings().onAirOnly = on;
+    m_session->saveSettings();
     m_proxy->setOnAirOnly(on);
     updateCountLabel();
     updateScale();
@@ -1302,74 +997,51 @@ void MainWindow::onOnAirOnlyToggled(bool on)
 
 void MainWindow::onAlwaysOnTopToggled(bool on)
 {
-    m_settings.alwaysOnTop = on;
+    m_session->settings().alwaysOnTop = on;
     const bool visible = isVisible();
     setWindowFlag(Qt::WindowStaysOnTopHint, on);
     if (visible)
         show();
 }
 
-void MainWindow::updateDatabases()
-{
-    if (m_updater->isBusy())
-        return;
-    m_updateAction->setEnabled(false);
-    m_updater->update(m_settings.refreshDays, true);
-}
-
-void MainWindow::onUpdateFinished(bool ok, const QString& message)
+void MainWindow::onUpdateFinished(bool ok, const QString& message, bool databaseEmpty)
 {
     m_updateAction->setEnabled(true);
     statusBar()->showMessage(message, ok ? 15000 : 0);
     updateDbStatus();
     if (ok)
     {
-        m_lastSearchKey.clear();   // the data changed: search again
-        refreshLookup();
-        updateHeader();            // the allocation table may have arrived
+        refreshLookup();   // the data changed: the Session searches again
+        updateHeader();    // the allocation table may have arrived
     }
-    else if (m_db->count() == 0)
+    else if (databaseEmpty)
         QMessageBox::warning(this, tr("Database update failed"),
                              tr("%1\n\nYou can retry from File > Update databases now.").arg(message));
 }
 
 void MainWindow::openSettings()
 {
-    SettingsDialog dlg(m_settings, this);
+    SettingsDialog dlg(m_session->settings(), this);
     if (dlg.exec() != QDialog::Accepted)
         return;
-    acceptSettings(dlg.settings(m_settings));
+    acceptSettings(dlg.settings(m_session->settings()));
 }
 
 void MainWindow::acceptSettings(const AppSettings& updated)
 {
-    // The dialog starts from the current settings and changes only what it
-    // shows, so its result replaces them whole: no field can be forgotten.
-    const AppSettings old = m_settings;
-    m_settings = updated;
-    const bool updateChanged = m_settings.updateCheck != old.updateCheck
-                               || m_settings.updateUrl != old.updateUrl;
-    const bool launcherChanged =
-        m_settings.launchRigctld != old.launchRigctld || m_settings.rigctldPath != old.rigctldPath
-        || m_settings.rigModel != old.rigModel || m_settings.rigDevice != old.rigDevice
-        || m_settings.rigBaud != old.rigBaud || m_settings.rigctldExtra != old.rigctldExtra
-        || m_settings.rigPort != old.rigPort;
-    m_settings.save(m_db);
-    applySettings();
-    if (launcherChanged)
-        applyLauncher();
+    m_session->acceptSettings(updated);
+}
+
+void MainWindow::onSettingsApplied()
+{
+    applyViewSettings();
     // a warning on screen names the address now in use; whether that one
     // answers is known after the next polls
     if (!m_rigText->text().isEmpty())
-        m_rigText->setText(rigSilentText());
+        m_rigText->setText(m_session->rigSilentText());
     updateHeader();
     updateDbStatus();
-    m_lastSearchKey.clear();   // the data changed: search again
     refreshLookup();
-    if (m_updater->anyStale(m_settings.refreshDays))
-        updateDatabases();
-    if (updateChanged)
-        startUpdateCheck();
 }
 
 void MainWindow::tick()
@@ -1402,29 +1074,14 @@ void MainWindow::about()
            "Web page: <a href=\"https://otd.oh2gba.eu/\">otd.oh2gba.eu</a></p>"
            "<p>Data directory: %2</p>"
            "<p>Licensed under the GNU GPL v3 or later. Built with Qt %3.</p>")
-            .arg(QLatin1String(OTD_VERSION), m_dataDir.toHtmlEscaped(),
+            .arg(QLatin1String(OTD_VERSION), m_session->dataDir().toHtmlEscaped(),
                  QLatin1String(qVersion())));
-}
-
-// Values that change in quick succession (tuning by hand, the zoom, the
-// highlight range) are written once things settle, not on every step.
-void MainWindow::scheduleSave()
-{
-    if (!m_saveTimer)
-    {
-        m_saveTimer = new QTimer(this);
-        m_saveTimer->setObjectName(QStringLiteral("saveTimer"));
-        m_saveTimer->setSingleShot(true);
-        m_saveTimer->setInterval(1000);
-        connect(m_saveTimer, &QTimer::timeout, this, [this]() { m_settings.save(m_db); });
-    }
-    m_saveTimer->start();
 }
 
 void MainWindow::saveColumns()
 {
-    m_db->setMeta(QStringLiteral("window.columns"),
-                  QString::fromLatin1(m_table->horizontalHeader()->saveState().toBase64()));
+    m_session->db()->setMeta(QStringLiteral("window.columns"),
+                             QString::fromLatin1(m_table->horizontalHeader()->saveState().toBase64()));
 }
 
 void MainWindow::headerContextMenu(const QPoint& pos)
@@ -1515,7 +1172,7 @@ void MainWindow::refillDial()
         mid = last;
     const StationEntry midEntry = m_model->entryAt(m_proxy->mapToSource(m_proxy->index(mid, 0)).row());
     const int midY = m_table->rowViewportPosition(mid);
-    const StationList list = m_db->around(midEntry.kHz, 1000, enabledSources());
+    const StationList list = m_session->db()->around(midEntry.kHz, 1000, m_session->disabledSources());
     if (list.isEmpty())
         return;
     if (qFuzzyCompare(list.first().kHz, m_model->entryAt(m_proxy->mapToSource(m_proxy->index(first, 0)).row()).kHz)
@@ -1523,7 +1180,7 @@ void MainWindow::refillDial()
         && list.size() == last - first + 1)
         return;   // the database has no more in that direction
     m_refilling = true;
-    m_model->setDialEntries(list, m_centreKHz);
+    m_model->setDialEntries(list, m_session->centreKHz());
     m_table->doItemsLayout();
     const int newRows = m_proxy->rowCount();
     for (int r = 0; r < newRows; ++r)
@@ -1550,7 +1207,8 @@ void MainWindow::showEvent(QShowEvent* event)
 // themselves (lists, spin boxes) keep them.
 bool MainWindow::tuneByKey(QKeyEvent* key)
 {
-    if (m_followRig->isChecked() || m_centreKHz <= 0.0)
+    const double centre = m_session->centreKHz();
+    if (m_session->followRig() || centre <= 0.0)
         return false;
     double step = 0.0;
     switch (key->key())
@@ -1569,9 +1227,7 @@ bool MainWindow::tuneByKey(QKeyEvent* key)
     if (qobject_cast<QComboBox*>(focus) || qobject_cast<QAbstractSpinBox*>(focus)
         || qobject_cast<QAbstractItemView*>(focus) || (focus && qobject_cast<QComboBox*>(focus->parentWidget())))
         return false;
-    const double kHz = qMax(0.0, m_centreKHz + step);
-    m_freqEdit->setText(QString::number(kHz, 'f', 3));
-    setCentreKHz(kHz, false);
+    m_session->setManualKHz(qMax(0.0, centre + step));
     return true;
 }
 
@@ -1579,7 +1235,8 @@ bool MainWindow::tuneByKey(QKeyEvent* key)
 // digit goes up or down, like the tuning step of a radio display.
 bool MainWindow::wheelOnFrequency(QWheelEvent* wheel)
 {
-    if (m_followRig->isChecked() || m_centreKHz <= 0.0)
+    const double centre = m_session->centreKHz();
+    if (m_session->followRig() || centre <= 0.0)
         return false;
     const int steps = wheel->angleDelta().y() / 120;
     if (steps == 0)
@@ -1600,27 +1257,10 @@ bool MainWindow::wheelOnFrequency(QWheelEvent* wheel)
         }
         left += w;
     }
-    if (idx < 0 || !text.at(idx).isDigit())
+    const double step = Format::digitStep(text, idx);
+    if (step <= 0.0)
         return false;
-    // the digit's weight: count the digits between it and the decimal point
-    const int dot = text.indexOf(QLatin1Char('.'));
-    int place = 0;
-    if (idx < dot)
-    {
-        for (int i = idx + 1; i < dot; ++i)
-            if (text.at(i).isDigit())
-                ++place;
-    }
-    else
-    {
-        for (int i = dot + 1; i <= idx; ++i)
-            if (text.at(i).isDigit())
-                --place;
-    }
-    const double step = std::pow(10.0, place);
-    const double kHz = qMax(0.0, m_centreKHz + steps * step);
-    m_freqEdit->setText(QString::number(kHz, 'f', 3));
-    setCentreKHz(kHz, false);
+    m_session->setManualKHz(qMax(0.0, centre + steps * step));
     return true;
 }
 
@@ -1703,7 +1343,7 @@ void MainWindow::fitColumns()
     // the narrow format columns are sized for their widest possible value,
     // so that "▼ 999.9" or "12345.678" never get clipped when the rows change
     const QHash<int, int> least = {
-        {StationModel::ColDelta,     fm.horizontalAdvance(QStringLiteral("\u25BC 999.9")) + pad},
+        {StationModel::ColDelta,     fm.horizontalAdvance(QStringLiteral("▼ 999.9")) + pad},
         {StationModel::ColFrequency, fm.horizontalAdvance(QStringLiteral("12345.678")) + pad},
         {StationModel::ColStatus,    fm.horizontalAdvance(tr("inactive")) + pad},
         {StationModel::ColMode,      fm.horizontalAdvance(QStringLiteral("HFDL")) + pad},
@@ -1729,16 +1369,15 @@ void MainWindow::resizeEvent(QResizeEvent* event)
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
-    m_db->setMeta(QStringLiteral("window.geometry"),
-                  QString::fromLatin1(saveGeometry().toBase64()));
+    m_session->db()->setMeta(QStringLiteral("window.geometry"),
+                             QString::fromLatin1(saveGeometry().toBase64()));
     saveColumns();
-    m_settings.kiwiVolume = m_player->volume();
-    m_settings.kiwiReceivers = m_player->receivers();
-    m_settings.kiwiFavourites = m_player->favourites();
-    m_settings.kiwiCurrent = m_player->currentReceiver();
-    m_settings.save(m_db);
-    if (m_saveTimer)
-        m_saveTimer->stop();   // saved just now; nothing is left to write later
+    AppSettings& s = m_session->settings();
+    s.kiwiVolume = m_player->volume();
+    s.kiwiReceivers = m_player->receivers();
+    s.kiwiFavourites = m_player->favourites();
+    s.kiwiCurrent = m_player->currentReceiver();
+    m_session->saveSettings();
     QMainWindow::closeEvent(event);
 }
 

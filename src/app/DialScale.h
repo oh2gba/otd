@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "core/DialMarks.h"
 #include <QVector>
 #include <QWidget>
 
@@ -11,13 +12,7 @@ class DialScale : public QWidget
 {
     Q_OBJECT
 public:
-    struct Mark
-    {
-        double kHz = 0.0;
-        QString name;     // the station shown for this frequency
-        int rank = 2;     // 0 on air, 1 maybe, 2 off, 3 inactive
-        int count = 1;    // entries on this frequency
-    };
+    using Mark = DialMark;
 
     explicit DialScale(QWidget* parent = nullptr);
 

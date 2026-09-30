@@ -31,6 +31,9 @@ public:
     qint64 frequencyHz() const { return m_frequencyHz; }
     QString mode() const { return m_mode; }
     int passbandHz() const { return m_passband; }
+    // The modes a rig is asked for ("M" command); a schedule's other modes
+    // (DRM, digital ones) are left to what the rig has set.
+    static bool isRigMode(const QString& mode);
 
 public slots:
     void start();

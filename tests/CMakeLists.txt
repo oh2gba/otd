@@ -20,6 +20,7 @@ otd_test(test_kiwi)
 otd_test(test_traficom)
 otd_test(test_rigclient)
 otd_test(test_appsettings)   # AppSettings in the database
+otd_test(test_session)       # the rules of tuning and the list, against a fake rigctld
 
 # The app's own classes (settings, KiwiSDR player, main window) come from
 # the otd_app object library, so these tests build what otd itself runs.

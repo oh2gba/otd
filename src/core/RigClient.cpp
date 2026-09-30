@@ -283,3 +283,10 @@ void RigClient::handleLine(const QByteArray& line)
         break;
     }
 }
+
+bool RigClient::isRigMode(const QString& mode)
+{
+    static const QStringList modes = {QStringLiteral("AM"), QStringLiteral("USB"),
+                                      QStringLiteral("LSB"), QStringLiteral("CW")};
+    return modes.contains(mode);
+}

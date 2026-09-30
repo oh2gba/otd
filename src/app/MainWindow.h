@@ -4,28 +4,24 @@
 #include "DialScale.h"
 #include "KiwiPlayer.h"
 #include "SettingsDialog.h"
-#include "core/BandPlan.h"
-#include "core/UpdateCheck.h"
-#include "core/KiwiDirectory.h"
-#include <QHash>
+#include "core/Session.h"
 #include <QMainWindow>
 
 class QCheckBox;
 class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
-class QNetworkAccessManager;
 class BufferBar;
 class QSortFilterProxyModel;
 class QTableView;
 class QTimer;
-class Updater;
-class RigClient;
-class RigctldLauncher;
-class StationDb;
 class StationModel;
 class StationFilter;
 
+// The desktop window: it draws what the Session says (the tuned frequency,
+// the list, the rig's state) and hands the Session what the listener does.
+// What is only about widgets stays here: the columns, the scrolling that
+// keeps the VFO in the middle, the menus and dialogs, the keys and the wheel.
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -36,7 +32,7 @@ public:
     void screenshotTo(const QString& file, int delayMs = 6000);
     ~MainWindow() override;
 
-    const AppSettings& settings() const { return m_settings; }
+    const AppSettings& settings() const { return m_session->settings(); }
     // What OK in Settings does with the dialog's result. Public so that the
     // tests can take this path without the modal dialog.
     void acceptSettings(const AppSettings& updated);
@@ -50,20 +46,20 @@ protected:
     bool wheelOnFrequency(class QWheelEvent* wheel);
 
 private slots:
-    void onRigFrequency(qint64 hz);
-    void onRigMode(const QString& mode, int passband);
+    void onCentreChanged(double kHz, Session::Origin origin);
+    void onFollowRigChanged(bool follow);
+    void onRigMode(const QString& mode);
     void onRigState(bool connected, const QString& message);
     void onRigAnswering(bool answering);
     void onFrequencyEdited();
-    QString rigSilentText() const;   // "Rig not answering (host:port)"
     void onFollowToggled(bool follow);
     void onToleranceChanged(double kHz);
     void onOnAirOnlyToggled(bool on);
     void onFilterChanged(const QString& text);
     void onRowActivated(const QModelIndex& index);
     void onAlwaysOnTopToggled(bool on);
-    void updateDatabases();
-    void onUpdateFinished(bool ok, const QString& message);
+    void onSettingsApplied();
+    void onUpdateFinished(bool ok, const QString& message, bool databaseEmpty);
     void openSettings();
     void tick();
     void about();
@@ -73,15 +69,11 @@ private slots:
 
 private:
     void buildUi();
-    void applySettings();
-    void applyLauncher();
-    void startUpdateCheck();
+    void applyViewSettings();
     void showUpdateResult(const UpdateCheck::Result& r);
-    void setCentreKHz(double kHz, bool fromRig);
     void refreshLookup();
     void updateHeader();
     void updateDbStatus();
-    QStringList enabledSources() const;
     void updateCountLabel();
     void centreOnMarker();
     void headerContextMenu(const QPoint& pos);
@@ -91,8 +83,6 @@ private:
     void onHeaderClicked(int column);
     void applySort();
     void saveColumns();
-    void scheduleSave();
-    QTimer* m_saveTimer = nullptr;
     void scaleColumns(int width);
     void fitColumns();
     bool m_columnsFitted = false;
@@ -100,23 +90,15 @@ private:
     bool m_dialActive = false;
     bool m_searching = false;
     bool m_refilling = false;
+    bool m_fromEdit = false;   // the frequency field itself is being read
     int m_sortColumn = -1;                    // search results sorted by this column, -1: as found
     Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
-    QString m_lastSearchKey;      // search text and sources of the list on screen
     void setupTable(QTableView* table);
     void updateToleranceHint();
     QModelIndex sourceIndex(const QModelIndex& proxyIndex) const;
-    static QString formatKHz(double kHz);
 
-    AppSettings m_settings;
-    QString m_dataDir;
-    StationDb* m_db = nullptr;
-    QNetworkAccessManager* m_nam = nullptr;
-    Updater* m_updater = nullptr;
-    UpdateCheck* m_updateCheck = nullptr;
+    Session* m_session = nullptr;
     QLabel* m_updateLabel = nullptr;
-    RigClient* m_rig = nullptr;
-    RigctldLauncher* m_launcher = nullptr;
     StationModel* m_model = nullptr;
     StationFilter* m_proxy = nullptr;
     BufferBar* m_bufferBar = nullptr;
@@ -125,7 +107,6 @@ private:
     QLabel* m_freqLabel = nullptr;
     QLabel* m_modeLabel = nullptr;
     QLabel* m_bandLabel = nullptr;
-    BandPlan m_bandPlan;
     QLabel* m_clockLabel = nullptr;
     QLabel* m_countLabel = nullptr;
     QCheckBox* m_followRig = nullptr;
@@ -139,21 +120,15 @@ private:
     QAction* m_tableAction = nullptr;
     QAction* m_playerAction = nullptr;
     KiwiPlayer* m_player = nullptr;
-    KiwiDirectory* m_kiwiDirectory = nullptr;
     void updatePlayer();
     DialScale* m_scale = nullptr;
     void updateScale();
     void tuneTo(double kHz, const QString& mode, qint64 flashId = 0);
     QLabel* m_rigText = nullptr;
-    bool m_manualUpdateCheck = false;
     QLabel* m_sdrStatus = nullptr;
     QLabel* m_dbStatus = nullptr;
     QAction* m_updateAction = nullptr;
     QAction* m_onTopAction = nullptr;
 
-    double m_centreKHz = 0.0;
-    qint64 m_rigHz = 0;
-    QString m_rigMode;
-    bool m_rigConnected = false;
     int m_lastEvalMinute = -1;
 };
