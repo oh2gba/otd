@@ -394,15 +394,18 @@ void MainWindow::buildUi()
     m_modeLabel->setFont(mid);
 
     m_bandLabel = new QLabel;
+    m_bandLabel->setObjectName(QStringLiteral("bandLabel"));
     m_bandLabel->setFont(mid);
     m_bandLabel->setToolTip(tr("Allocation of the tuned frequency (ITU region set in Settings)"));
 
     m_clockLabel = new QLabel;
+    m_clockLabel->setObjectName(QStringLiteral("clockLabel"));
     m_clockLabel->setFont(mid);
     m_clockLabel->setToolTip(tr("Current UTC time; schedules are evaluated against it"));
 
     // a small link above the clock when a newer version exists
     m_updateLabel = new QLabel;
+    m_updateLabel->setObjectName(QStringLiteral("updateLabel"));
     m_updateLabel->setOpenExternalLinks(true);
     m_updateLabel->setTextFormat(Qt::RichText);
     m_updateLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -441,6 +444,7 @@ void MainWindow::buildUi()
     connect(m_freqEdit, &QLineEdit::editingFinished, this, &MainWindow::onFrequencyEdited);
 
     m_tolerance = new QDoubleSpinBox;
+    m_tolerance->setObjectName(QStringLiteral("tolerance"));
     m_tolerance->setRange(0.1, 500.0);
     m_tolerance->setDecimals(1);
     m_tolerance->setSingleStep(1.0);
@@ -450,6 +454,7 @@ void MainWindow::buildUi()
     connect(m_tolerance, &QDoubleSpinBox::valueChanged, this, &MainWindow::onToleranceChanged);
 
     m_onAirOnly = new QCheckBox(tr("On air only"));
+    m_onAirOnly->setObjectName(QStringLiteral("onAirOnly"));
     connect(m_onAirOnly, &QCheckBox::toggled, this, &MainWindow::onOnAirOnlyToggled);
 
     m_filter = new QLineEdit;
@@ -473,6 +478,7 @@ void MainWindow::buildUi()
     connect(m_filter, &QLineEdit::textChanged, this, &MainWindow::onFilterChanged);
 
     m_countLabel = new QLabel;
+    m_countLabel->setObjectName(QStringLiteral("countLabel"));
 
     auto* controls = new QHBoxLayout;
     controls->addWidget(m_followRig);
@@ -572,6 +578,7 @@ void MainWindow::buildUi()
         m_sdrStatus->setText(text.isEmpty() ? QString() : tr("KiwiSDR: %1").arg(text));
     });
     m_dbStatus = new QLabel;
+    m_dbStatus->setObjectName(QStringLiteral("dbStatus"));
     // audio in hand for the online receiver, in the corner while it plays
     m_bufferBar = new BufferBar;
     m_bufferBar->hide();

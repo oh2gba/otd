@@ -8,16 +8,25 @@
 // and all traffic is pointed at a proxy that only counts connections.
 // The rig's silence timeout is the real one, so some tests take seconds.
 #include "BufferBar.h"
+#include "DialScale.h"
 #include "KiwiPlayer.h"
 #include "MainWindow.h"
 #include "StationModel.h"
+#include "core/EibiParser.h"
 #include "core/RigClient.h"
+#include "core/ScheduleSource.h"
 #include "core/StationDb.h"
+#include "core/UpdateCheck.h"
+#include "core/Updater.h"
 #include "fakerigctld.h"
 
 #include <QApplication>
+#include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QRegularExpression>
+#include <QWheelEvent>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QHeaderView>
@@ -730,6 +739,427 @@ private slots:
         // warning is still there and still names it
         QTest::qWait(kSilenceMs + 1000);
         QCOMPARE(rigStatus(w), notAnswering(second));
+    }
+
+    // Follow rig ticked but nothing ever answers: once the rig counts as
+    // silent, the dial shows the remembered manual frequency rather than
+    // staying empty, the field says the same and stays read-only, and the
+    // clock runs in UTC.
+    void silentRigStartsOnRememberedFrequency()
+    {
+        QTcpServer a;
+        QVERIFY(a.listen(QHostAddress::LocalHost));
+        const quint16 port = a.serverPort();
+        a.close();
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), port));
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QCOMPARE(shownFrequency(w), QStringLiteral("---.--- kHz"));
+        QTRY_COMPARE_WITH_TIMEOUT(rigStatus(w), notAnswering(port), 3 * kSilenceMs);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 070.000 kHz"));
+        QCOMPARE(shownMode(w), QStringLiteral("no rig"));
+        auto* edit = w.findChild<QLineEdit*>(QStringLiteral("frequencyEdit"));
+        QVERIFY(edit && edit->isReadOnly());
+        QCOMPARE(edit->text(), QStringLiteral("6070.000"));
+        QVERIFY(followRig(w)->isChecked());
+        const QRegularExpression utc(QStringLiteral("^\\d\\d:\\d\\d:\\d\\d UTC$"));
+        QVERIFY2(utc.match(labelText(w, QStringLiteral("clockLabel"))).hasMatch(),
+                 qPrintable(labelText(w, QStringLiteral("clockLabel"))));
+    }
+
+    // Without a rig the arrow keys are the tuning knob: Up/Down 1 kHz,
+    // Page Up/Down 5 kHz, a tenth of that with Ctrl. Following the rig,
+    // they are not.
+    void arrowKeysTuneWithoutRig()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        MainWindow w(dir.path());
+        w.show();
+        w.activateWindow();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 070.000 kHz"));
+        QTest::keyClick(&w, Qt::Key_Up);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 071.000 kHz"));
+        QTest::keyClick(&w, Qt::Key_PageUp);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 076.000 kHz"));
+        QTest::keyClick(&w, Qt::Key_Down, Qt::ControlModifier);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 075.900 kHz"));
+        QTest::keyClick(&w, Qt::Key_PageDown);
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 070.900 kHz"));
+        auto* edit = w.findChild<QLineEdit*>(QStringLiteral("frequencyEdit"));
+        QVERIFY(edit);
+        QCOMPARE(edit->text(), QStringLiteral("6070.900"));   // the field says the same
+        QCOMPARE(shownMode(w), QStringLiteral("manual"));
+
+        followRig(w)->setChecked(true);   // the rig has been answering all along
+        QTRY_COMPARE_WITH_TIMEOUT(shownFrequency(w), QStringLiteral("7 125.000 kHz"), 5000);
+        QTest::keyClick(&w, Qt::Key_Up);
+        QTest::keyClick(&w, Qt::Key_PageUp);
+        QCOMPARE(shownFrequency(w), QStringLiteral("7 125.000 kHz"));
+    }
+
+    // The mouse wheel over a digit of the big frequency turns that digit,
+    // like the tuning step of a radio display; over a space it does nothing.
+    void wheelOverDigitStepsThatDigit()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* label = w.findChild<QLabel*>(QStringLiteral("frequencyLabel"));
+        QVERIFY(label);
+        QCOMPARE(label->text(), QStringLiteral("6 070.000 kHz"));
+        auto wheelAt = [label](int index, int steps) {
+            const QFontMetrics fm(label->font());
+            const QString text = label->text();
+            double x = label->contentsRect().left();
+            for (int i = 0; i < index; ++i)
+                x += fm.horizontalAdvance(text.at(i));
+            x += fm.horizontalAdvance(text.at(index)) / 2.0;
+            const QPointF pos(x, label->height() / 2.0);
+            QWheelEvent ev(pos, label->mapToGlobal(pos.toPoint()), QPoint(), QPoint(0, 120 * steps),
+                           Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+            QApplication::sendEvent(label, &ev);
+        };
+        wheelAt(3, 1);    // the 7 of "6 070": tens
+        QCOMPARE(shownFrequency(w), QStringLiteral("6 080.000 kHz"));
+        wheelAt(0, -1);   // the 6: thousands
+        QCOMPARE(shownFrequency(w), QStringLiteral("5 080.000 kHz"));
+        wheelAt(8, 2);    // the last decimal
+        QCOMPARE(shownFrequency(w), QStringLiteral("5 080.002 kHz"));
+        wheelAt(1, 1);    // the thousands space
+        QCOMPARE(shownFrequency(w), QStringLiteral("5 080.002 kHz"));
+        auto* edit = w.findChild<QLineEdit*>(QStringLiteral("frequencyEdit"));
+        QVERIFY(edit);
+        QCOMPARE(edit->text(), QStringLiteral("5080.002"));
+    }
+
+    // The band line names the allocation of the tuned frequency from the
+    // built-in plan, coloured by its kind, and says so when there is none.
+    // With the Traficom table on, its rows replace the plan where they exist.
+    void bandLineFollowsPlanAndTraficom()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            MainWindow w(dir.path());
+            w.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&w));
+            auto* band = w.findChild<QLabel*>(QStringLiteral("bandLabel"));
+            auto* edit = w.findChild<QLineEdit*>(QStringLiteral("frequencyEdit"));
+            QVERIFY(band && edit);
+            QCOMPARE(band->text(), QStringLiteral("49 m broadcast"));
+            QVERIFY(band->styleSheet().contains(QLatin1String("#e8b339")));
+            edit->setText(QStringLiteral("4625"));
+            QTest::keyClick(edit, Qt::Key_Return);
+            QCOMPARE(band->text(), QStringLiteral("no allocation listed"));
+            QVERIFY(band->styleSheet().contains(QLatin1String("palette(mid)")));
+            edit->setText(QStringLiteral("7125"));
+            QTest::keyClick(edit, Qt::Key_Return);
+            QCOMPARE(band->text(), QStringLiteral("40 m amateur"));
+            QVERIFY(band->styleSheet().contains(QLatin1String("#7ee787")));
+            w.close();   // writes the frequency for the next start
+        }
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            AppSettings s;
+            s.load(&db);
+            s.traficomEnabled = true;
+            s.save(&db);
+            // fresh, so no download is due
+            db.setMeta(QStringLiteral("traficom.updated"),
+                       QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+            StationDb::Allocation wide, narrow;
+            wide.lowKHz = 5000;
+            wide.highKHz = 7000;
+            wide.service = QStringLiteral("FIXED");
+            narrow.lowKHz = 5900;
+            narrow.highKHz = 6200;
+            narrow.service = QStringLiteral("BROADCASTING");
+            narrow.usage = QStringLiteral("HF broadcasting");
+            QVERIFY(db.replaceAllocations(QStringLiteral("traficom"), {wide, narrow}));
+        }
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* band = w.findChild<QLabel*>(QStringLiteral("bandLabel"));
+        QVERIFY(band);
+        QCOMPARE(shownFrequency(w), QStringLiteral("7 125.000 kHz"));   // where the last session was
+        QCOMPARE(band->text(), QStringLiteral("40 m amateur"));   // no Traficom row there: the plan
+        auto* edit = w.findChild<QLineEdit*>(QStringLiteral("frequencyEdit"));
+        QVERIFY(edit);
+        edit->setText(QStringLiteral("6070"));
+        QTest::keyClick(edit, Qt::Key_Return);
+        // narrowest first, usage with the service in brackets
+        QCOMPARE(band->text(), QStringLiteral("HF broadcasting (broadcasting) \u00b7 FIXED"));
+        QVERIFY(band->styleSheet().contains(QLatin1String("#e8b339")));
+        QVERIFY2(band->toolTip().startsWith(QLatin1String("Traficom allocation table:")), qPrintable(band->toolTip()));
+        QVERIFY(band->toolTip().contains(QLatin1String("5900.000 - 6200.000 kHz: HF broadcasting [BROADCASTING]")));
+    }
+
+    // Search results come on air first, then by frequency: an order that
+    // does not depend on the VFO, so tuning to a result leaves the list
+    // still while the distances follow. A changed text is a new search.
+    void searchResultsStayPutWhileTuning()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            for (const auto& [kHz, name] : QList<QPair<double, const char*>>{
+                     {7200, "Radio Alpha"}, {6100, "Radio Bravo"}, {9400, "Radio Charlie"}})
+            {
+                StationEntry e;
+                e.source = userSourceId();
+                e.kHz = kHz;
+                e.station = QString::fromLatin1(name);
+                QVERIFY(db.insertEntry(e));
+            }
+        }
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* search = w.findChild<QLineEdit*>(QStringLiteral("search"));
+        auto* table = w.findChild<QTableView*>(QStringLiteral("stationTable"));
+        QVERIFY(search && table);
+        auto order = [table]() {
+            QStringList names;
+            for (int r = 0; r < table->model()->rowCount(); ++r)
+            {
+                const QString name = table->model()->index(r, StationModel::ColStation).data().toString();
+                if (!name.isEmpty())
+                    names << name;
+            }
+            return names;
+        };
+        QTest::keyClicks(search, QStringLiteral("radio"));
+        // all on air, so by frequency
+        QCOMPARE(order(), (QStringList{"Radio Bravo", "Test Radio", "Radio Alpha", "Radio Charlie"}));
+        QVERIFY(doubleClickStation(w, 9400.0));
+        QCOMPARE(shownFrequency(w), QStringLiteral("9 400.000 kHz"));
+        QCOMPARE(order(), (QStringList{"Radio Bravo", "Test Radio", "Radio Alpha", "Radio Charlie"}));
+        // the distances did follow the VFO
+        for (int r = 0; r < table->model()->rowCount(); ++r)
+            if (table->model()->index(r, StationModel::ColStation).data().toString() == QLatin1String("Radio Charlie"))
+                QCOMPARE(table->model()->index(r, StationModel::ColDelta).data(StationModel::DeltaRole).toDouble(), 0.0);
+        // a new search text is a new search
+        QTest::keyClicks(search, QStringLiteral(" !bravo"));
+        QCOMPARE(order(), (QStringList{"Test Radio", "Radio Alpha", "Radio Charlie"}));
+    }
+
+    // The count next to the search says what the list holds: "around" the
+    // frequency on the dial, "found" while searching, "no entries" when
+    // nothing matches.
+    void countLabelTellsAroundAndFound()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            StationEntry e;
+            e.source = userSourceId();
+            e.kHz = 7200;
+            e.station = QStringLiteral("Radio Alpha");
+            QVERIFY(db.insertEntry(e));
+        }
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* search = w.findChild<QLineEdit*>(QStringLiteral("search"));
+        QVERIFY(search);
+        QCOMPARE(labelText(w, QStringLiteral("countLabel")), QStringLiteral("2 on air / 2 around"));
+        QTest::keyClicks(search, QStringLiteral("alpha"));
+        QCOMPARE(labelText(w, QStringLiteral("countLabel")), QStringLiteral("1 on air / 1 found"));
+        QTest::keyClicks(search, QStringLiteral("zzz"));
+        QCOMPARE(labelText(w, QStringLiteral("countLabel")), QStringLiteral("no entries"));
+        QTest::keyClick(search, Qt::Key_Escape);
+        QCOMPARE(labelText(w, QStringLiteral("countLabel")), QStringLiteral("2 on air / 2 around"));
+    }
+
+    // The status bar counts the entries per enabled source, says so when
+    // none is enabled, and lists a source the program does not know (a list
+    // put into the database by other means) by its id.
+    void dbStatusNamesTheSources()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            MainWindow w(dir.path());
+            w.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&w));
+            QCOMPARE(labelText(w, QStringLiteral("dbStatus")), QStringLiteral("No sources enabled"));
+        }
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            AppSettings s;
+            s.load(&db);
+            s.eibiEnabled = true;
+            s.save(&db);
+            // fresh and of the current season, so no download is due
+            db.setMeta(QStringLiteral("eibi.updated"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+            db.setMeta(QStringLiteral("eibi.season"), EibiParser::seasonCode(QDate::currentDate()));
+            StationList eibi, extra;
+            StationEntry e;
+            e.source = QStringLiteral("eibi");
+            e.kHz = 6005;
+            e.station = QStringLiteral("Radio Foo");
+            eibi << e;
+            QVERIFY(db.replaceSource(QStringLiteral("eibi"), eibi));
+            e.source = QStringLiteral("extra");
+            extra << e << e;
+            QVERIFY(db.replaceSource(QStringLiteral("extra"), extra));
+        }
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* updater = w.findChild<Updater*>();
+        QVERIFY(updater && updater->source(QStringLiteral("eibi")));
+        const QString eibiName = updater->source(QStringLiteral("eibi"))->displayName();
+        const QString season = EibiParser::seasonCode(QDate::currentDate()).toUpper();
+        QCOMPARE(labelText(w, QStringLiteral("dbStatus")),
+                 QStringLiteral("%1 %2: 1  |  EXTRA: 2").arg(eibiName, season));
+        const QLabel* status = w.findChild<QLabel*>(QStringLiteral("dbStatus"));
+        QVERIFY(status->toolTip().startsWith(QStringLiteral("%1 %2: 1 entries, checked ").arg(eibiName, season)));
+    }
+
+    // "On air only" hides the rows that are off the air now (the dial's
+    // count still tells how many there are) and is saved at once.
+    void onAirOnlyHidesTheRestAndIsSaved()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        {
+            StationDb db(dir.path() + QStringLiteral("/stations.db"));
+            QVERIFY(db.open());
+            // one minute of air time, half a day from now
+            const int now = QDateTime::currentDateTimeUtc().time().hour() * 60
+                            + QDateTime::currentDateTimeUtc().time().minute();
+            StationEntry e;
+            e.source = userSourceId();
+            e.kHz = 7300;
+            e.station = QStringLiteral("Night Owl");
+            e.startMin = (now + 720) % 1440;
+            e.endMin = e.startMin + 1;
+            QVERIFY(db.insertEntry(e));
+        }
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* table = w.findChild<QTableView*>(QStringLiteral("stationTable"));
+        auto* onAir = w.findChild<QCheckBox*>(QStringLiteral("onAirOnly"));
+        QVERIFY(table && onAir && !onAir->isChecked());
+        auto names = [table]() {
+            QStringList out;
+            for (int r = 0; r < table->model()->rowCount(); ++r)
+            {
+                const QString name = table->model()->index(r, StationModel::ColStation).data().toString();
+                if (!name.isEmpty())
+                    out << name;
+            }
+            return out;
+        };
+        QCOMPARE(names(), (QStringList{"Test Radio", "Night Owl"}));
+        QCOMPARE(labelText(w, QStringLiteral("countLabel")), QStringLiteral("1 on air / 2 around"));
+        onAir->setChecked(true);
+        QCOMPARE(names(), (QStringList{"Test Radio"}));
+        QCOMPARE(labelText(w, QStringLiteral("countLabel")), QStringLiteral("1 on air / 2 around"));
+        QVERIFY(stored(dir.path()).onAirOnly);
+        onAir->setChecked(false);
+        QCOMPARE(names(), (QStringList{"Test Radio", "Night Owl"}));
+        QVERIFY(!stored(dir.path()).onAirOnly);
+    }
+
+    // The highlight range is saved once it stops changing, and the View
+    // menu's switches are saved at once.
+    void toleranceAndViewSwitchesAreSaved()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port(), false));
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* tolerance = w.findChild<QDoubleSpinBox*>(QStringLiteral("tolerance"));
+        QVERIFY(tolerance);
+        QCOMPARE(tolerance->value(), 5.0);
+        tolerance->setValue(12.5);
+        QCOMPARE(stored(dir.path()).toleranceKHz, 5.0);   // not yet
+        QTRY_COMPARE_WITH_TIMEOUT(stored(dir.path()).toleranceKHz, 12.5, 3000);
+
+        QAction* dialAction = nullptr;
+        for (QAction* a : w.findChildren<QAction*>())
+            if (a->text() == QLatin1String("&Dial"))
+                dialAction = a;
+        auto* scale = w.findChild<DialScale*>();
+        QVERIFY(dialAction && scale && dialAction->isChecked() && scale->isVisible());
+        dialAction->setChecked(false);
+        QVERIFY(!scale->isVisible());
+        QVERIFY(!stored(dir.path()).showScale);
+        dialAction->setChecked(true);
+        QVERIFY(scale->isVisible());
+        QVERIFY(stored(dir.path()).showScale);
+    }
+
+    // The version check's answer goes to the small link above the clock: a
+    // newer version as a link, a note from the project as text, nothing
+    // when the check failed. Asked by hand while switched off, it says so.
+    void versionCheckSpeaksAboveTheClock()
+    {
+        FakeRigctld rig;
+        QTemporaryDir dir;
+        QVERIFY(seed(dir.path(), rig.port()));
+        MainWindow w(dir.path());
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        auto* label = w.findChild<QLabel*>(QStringLiteral("updateLabel"));
+        auto* check = w.findChild<UpdateCheck*>();
+        QVERIFY(label && check && !label->isVisible());
+
+        QAction* ask = nullptr;
+        for (QAction* a : w.findChildren<QAction*>())
+            if (a->text() == QLatin1String("Check for a &new version"))
+                ask = a;
+        QVERIFY(ask);
+        ask->trigger();   // switched off in the seeded settings
+        QCOMPARE(w.statusBar()->currentMessage(), QStringLiteral("Version check is switched off in Settings"));
+        QVERIFY(!label->isVisible());
+
+        UpdateCheck::Result r;
+        r.valid = true;
+        r.newer = true;
+        r.latest = QStringLiteral("9.9");
+        r.url = QStringLiteral("https://otd.oh2gba.eu/");
+        emit check->finished(r);
+        QVERIFY(label->isVisible());
+        QCOMPARE(label->text(), QStringLiteral("<a href=\"https://otd.oh2gba.eu/\">Version 9.9 available</a>"));
+        QVERIFY(label->toolTip().startsWith(QLatin1String("You are running")));
+
+        r.newer = false;
+        r.message = QStringLiteral("Hello & welcome");
+        r.url.clear();
+        emit check->finished(r);
+        QVERIFY(label->isVisible());
+        QCOMPARE(label->text(), QStringLiteral("Hello &amp; welcome"));
+
+        r.valid = false;
+        emit check->finished(r);
+        QVERIFY(!label->isVisible());
     }
 };
 
